@@ -392,7 +392,27 @@ def _vines(c: _Ctx) -> None:
             c.set(*p, _with(name, props, **keep), "vines")
 
 
+_GRAVITY_SUBST = {"sand": "sandstone", "red_sand": "red_sandstone", "gravel": "andesite",
+                  "suspicious_sand": "sandstone", "suspicious_gravel": "andesite"}
+
+
+def _gravity(c: _Ctx) -> None:
+    """Sand/gravel/concrete powder with nothing below would fall: swap for a stable look-alike."""
+    for i, st in enumerate(c.scene.palette):
+        name = parse_state(st)[0]
+        if name in _GRAVITY_SUBST or name.endswith("_concrete_powder"):
+            sub = _GRAVITY_SUBST.get(name) or name.replace("_concrete_powder", "_concrete")
+            mask = c.ids == i
+            if not mask.any():
+                continue
+            for p in zip(*[a.tolist() for a in np.nonzero(mask)]):
+                below = c.nb(*p, "down")
+                if c.kind[below] in (F.AIR, F.LIQUID, F.PLANT, F.DOUBLE_PLANT, F.VINE):
+                    c.set(*p, "minecraft:" + sub, "gravity_fixed")
+
+
 RULES: dict[str, Callable[[_Ctx], None]] = {
+    "gravity": _gravity,
     "leaves": _leaves,
     "double_blocks": _double_blocks,
     "beds": _beds,

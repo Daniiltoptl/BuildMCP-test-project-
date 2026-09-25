@@ -75,8 +75,10 @@ def lint(scene, where=None, flat_area: int = 90, max_issues: int = 60) -> list[I
                                 _box_of_cells(k[:, 0], k[:, 1], k[:, 2], o), len(keep)))
 
     # --- gravity blocks over air
+    # (pointed dripstone hangs from the block above, so it is not a falling block here)
     grav_ids = [i for i, s in enumerate(scene.palette)
-                if s.removeprefix("minecraft:").split("[", 1)[0] in F.GRAVITY_BLOCKS]
+                if s.removeprefix("minecraft:").split("[", 1)[0] in F.GRAVITY_BLOCKS
+                and not s.startswith("minecraft:pointed_dripstone")]
     if grav_ids:
         g = np.isin(ids, grav_ids) & below_air
         g[:, 0, :] = False

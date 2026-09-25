@@ -36,6 +36,7 @@ class StructureData:
 def from_scene(scene, where=None, anchor=None) -> StructureData:
     """Collect blocks, block entities, entities and biomes of a scene region."""
     from ..geo.mask import Mask, as_mask
+    from .modernize import adapt_block_entity, adapt_entity
     from .nbtutil import block_entity_id
 
     if where is None:
@@ -66,12 +67,14 @@ def from_scene(scene, where=None, anchor=None) -> StructureData:
             state = scene.get(x, y, z)
             if state == "minecraft:air":
                 continue
-            bes[(x - b.x1, y - b.y1, z - b.z1)] = (block_entity_id(state), _as_compound(nbt))
+            bid = block_entity_id(state)
+            bes[(x - b.x1, y - b.y1, z - b.z1)] = (bid, adapt_block_entity(bid, _as_compound(nbt), scene.reg.data_version))
     ents = []
     for e in scene.entities:
         p = [int(np.floor(c)) for c in e.pos]
         if b.contains(p):
-            ents.append((e.id, (e.pos[0] - b.x1, e.pos[1] - b.y1, e.pos[2] - b.z1), _as_compound(e.nbt)))
+            ents.append((e.id, (e.pos[0] - b.x1, e.pos[1] - b.y1, e.pos[2] - b.z1),
+                         adapt_entity(_as_compound(e.nbt), scene.reg.data_version)))
     # biomes (per column)
     bx0, bz0 = b.x1 - int(scene.origin[0]), b.z1 - int(scene.origin[2])
     bio = scene.biomes[bx0:bx0 + b.size[0], bz0:bz0 + b.size[2]].copy() if scene.biomes.size else None

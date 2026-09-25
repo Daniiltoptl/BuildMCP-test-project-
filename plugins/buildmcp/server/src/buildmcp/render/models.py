@@ -422,12 +422,16 @@ def compile_palette(palette: list[str], registry, assets: AssetStore, extra=None
                     b.warnings.append(f"no model for {name}")
         st_var_count[sid] = added
         if added and registry is not None and name in registry and registry.is_full_cube(state):
-            # opaque full cube if its single variant uses opaque textures only
+            # opaque full cube: some element is the whole cube with 6 opaque faces (overlays like
+            # the grass side don't matter)
             s0, c0 = b.var_elem_start[-1], b.var_elem_count[-1]
-            opaque = c0 >= 1 and all(
-                (b.tex_modes[b.fc_tex[f]] == T_OPAQUE) for e in range(s0, s0 + c0) for f in b.el_face[e] if f >= 0)
+
+            def solid_elem(e):
+                return (np.allclose(b.el_from[e], 0) and np.allclose(b.el_to[e], 1)
+                        and all(f >= 0 and b.tex_modes[b.fc_tex[f]] == T_OPAQUE for f in b.el_face[e]))
+
             full = any(np.allclose(b.el_from[e], 0) and np.allclose(b.el_to[e], 1) for e in range(s0, s0 + c0))
-            if opaque and full and not name.endswith("_leaves"):
+            if any(solid_elem(e) for e in range(s0, s0 + c0)) and not name.endswith("_leaves"):
                 st_flags[sid] |= F_OCC
             elif full and not name.endswith("_leaves"):
                 st_flags[sid] |= F_SELF_CULL

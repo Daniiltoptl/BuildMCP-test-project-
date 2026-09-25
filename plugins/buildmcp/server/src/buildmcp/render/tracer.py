@@ -367,18 +367,28 @@ def _light_at(arr, x, y, z):
 
 
 @njit(cache=True, fastmath=True)
+def _mc_bright(level):
+    """Game-like light curve (lightmap at 50% brightness): level 0..15 -> 0.04..1."""
+    f = level / 15.0
+    if f < 0.0:
+        f = 0.0
+    b = f / (4.0 - 3.0 * f)
+    g = 1.0 - (1.0 - b) ** 4
+    return (b + (g - b) * 0.5) * 0.96 + 0.04
+
+
+@njit(cache=True, fastmath=True)
 def _simple_light(px, py, pz, nx, ny, nz, block_light, sky_light, lp, sunx, suny, sunz):
     """Lighting without shadows/AO (used for translucent layers such as water and glass)."""
     fx = int(math.floor(px + nx * 0.5))
     fy = int(math.floor(py + ny * 0.5))
     fz = int(math.floor(pz + nz * 0.5))
-    sky = _light_at(sky_light, fx, fy, fz) / 15.0
-    blk = _light_at(block_light, fx, fy, fz) / 15.0
-    skyf = sky ** 1.35
+    skyf = _mc_bright(_light_at(sky_light, fx, fy, fz))
+    blk = _light_at(block_light, fx, fy, fz)
     ndl = nx * sunx + ny * suny + nz * sunz
     if ndl < 0:
         ndl = 0.0
-    bl = blk ** 1.6 * lp[5]
+    bl = (_mc_bright(blk) if blk > 0 else 0.0) * lp[5]
     lr = lp[0] * lp[6] * skyf + lp[1] * ndl * lp[2] + bl
     lg = lp[0] * lp[7] * skyf + lp[1] * ndl * lp[3] + bl * 0.82
     lb = lp[0] * lp[8] * skyf + lp[1] * ndl * lp[4] + bl * 0.6
@@ -839,8 +849,8 @@ def _pixel(i, j, width, height, ss, cam, env, light_params, vox, y_cut, highligh
                 fx = int(math.floor(px + nx * 0.5))
                 fy = int(math.floor(py + ny * 0.5))
                 fz = int(math.floor(pz + nz * 0.5))
-                sky = _light_at(sky_light, fx, fy, fz) / 15.0
-                blk = _light_at(block_light, fx, fy, fz) / 15.0
+                skyf = _mc_bright(_light_at(sky_light, fx, fy, fz))
+                blk_level = _light_at(block_light, fx, fy, fz)
                 emit = st_emit[sid] / 15.0
                 fshade = 1.0
                 if shade == 1:
@@ -871,11 +881,10 @@ def _pixel(i, j, width, height, ss, cam, env, light_params, vox, y_cut, highligh
                         else:
                             vis = sh[17]
                     direct = sun_k * ndl * vis
-                skyf = sky ** 1.35
                 lr = (amb * light_params[6] * skyf * fshade * ao + direct * light_params[2])
                 lg = (amb * light_params[7] * skyf * fshade * ao + direct * light_params[3])
                 lb = (amb * light_params[8] * skyf * fshade * ao + direct * light_params[4])
-                bl = blk ** 1.6 * blk_k
+                bl = (_mc_bright(blk_level) if blk_level > 0 else 0.0) * blk_k
                 lr += bl * 1.0 * ao
                 lg += bl * 0.82 * ao
                 lb += bl * 0.6 * ao
