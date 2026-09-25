@@ -69,3 +69,30 @@ def test_camera_underground_is_lifted(assets_ok):
     S.fill((0, 0, 0, 20, 10, 20), "stone")
     img = np.asarray(render_view(S, "player", pos=(10, 2, 10), yaw=0, width=160, height=100))
     assert img.mean() > 30
+
+
+def test_tables_follow_the_palette_after_restore(monkeypatch):
+    # a rebuild restores the scene in place: same palette length and tail, other order -> recompile
+    from buildmcp.render import views
+
+    calls = []
+    monkeypatch.setattr(views, "compile_palette",
+                        lambda pal, reg, assets, extra=None: calls.append(list(pal)) or object())
+    monkeypatch.setattr(views, "AssetStore", type("NoAssets", (), {"get": staticmethod(lambda version: None)}))
+
+    def scene(order):
+        S = Scene("1.21.4")
+        for i, b in enumerate(order):
+            S.set(i, 0, 0, b)
+        return S
+
+    S = scene(["stone", "dirt", "glass", "oak_planks", "cobblestone"])
+    r = views.Renderer(S)
+    r.tables()
+    r.tables()
+    assert len(calls) == 1
+    v = S.dirty_version
+    S.restore(scene(["dirt", "stone", "glass", "oak_planks", "cobblestone"]).to_bytes())
+    assert S.dirty_version > v  # the grid cache must not see an old version number again
+    r.tables()
+    assert len(calls) == 2 and calls[1] != calls[0]

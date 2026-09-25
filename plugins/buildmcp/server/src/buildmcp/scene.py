@@ -700,9 +700,10 @@ class Scene:
 
     def restore(self, blob: bytes) -> None:
         other = Scene.from_bytes(blob)
+        version = self.dirty_version  # keep counting up: caches (renders) key on it
         self.__dict__.update({k: v for k, v in other.__dict__.items() if k != "_lut_cache"})
         self._lut_cache = {}
-        self.dirty_version += 1
+        self.dirty_version = version + 1
 
     def save(self, path: str | Path) -> None:
         Path(path).write_bytes(self.to_bytes())

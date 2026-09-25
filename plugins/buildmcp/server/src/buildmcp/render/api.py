@@ -36,7 +36,10 @@ def renderer_for(scene) -> Renderer:
     r = _renderers.get(id(scene))
     if r is None or r.scene is not scene:
         r = Renderer(scene)
+        _renderers.pop(id(scene), None)
         _renderers[id(scene)] = r
+        while len(_renderers) > 4:  # a renderer keeps its scene alive: only the recent ones
+            _renderers.pop(next(iter(_renderers)))
     return r
 
 

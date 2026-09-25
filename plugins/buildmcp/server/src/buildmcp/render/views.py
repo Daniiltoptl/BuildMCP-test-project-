@@ -148,7 +148,8 @@ class Renderer:
         cam_key = None
         if ents and cam is not None:
             cam_key = (tuple(np.round(cam.forward, 5)), tuple(np.round(cam.up, 5)))
-        key = (len(self.scene.palette), tuple(self.scene.palette[-3:]), len(ents),
+        # the whole palette: a rebuild or undo can reorder it and keep its length
+        key = (hash(tuple(self.scene.palette)), len(ents),
                hash(tuple((e.id, e.pos, str(e.nbt)) for e in ents)) if ents else 0, cam_key)
         if self._tables is None or self._tables_key != key:
             extra = None
