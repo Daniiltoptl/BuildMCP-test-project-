@@ -12,6 +12,10 @@ from ..geo.box import Box
 from ..geo.mask import as_mask
 
 
+# plants that hang from the block above instead of standing on the ground
+HANGING = ("minecraft:hanging_roots", "minecraft:spore_blossom", "minecraft:pale_hanging_moss")
+
+
 @dataclass
 class Issue:
     severity: str  # error | warning | hint
@@ -67,6 +71,8 @@ def lint(scene, where=None, flat_area: int = 90, max_issues: int = 60) -> list[I
                 continue
             if st.startswith(("minecraft:lily_pad", "minecraft:seagrass", "minecraft:kelp", "minecraft:sea_pickle")):
                 continue
+            if st.startswith(HANGING) and ids[x, y + 1, z] != 0:
+                continue  # hangs from the block above
             keep.append((x, y, z))
         if keep:
             k = np.array(keep)
