@@ -204,3 +204,15 @@ def test_lint_finds_problems():
     S.set(25, 5, 25, "sand")
     kinds = {i.kind for i in lint(S)}
     assert {"unsupported_gravity", "flat_face"} <= kinds
+
+
+def test_lint_stray_blocks_ignores_lily_pads_and_lights():
+    S = Scene("1.21.4")
+    S.fill((0, 0, 0, 12, 0, 12), "grass_block")
+    S.fill((2, 0, 2, 6, 0, 6), "water")
+    S.set(3, 1, 3, "lily_pad")
+    S.set(9, 6, 9, "light[level=12]")
+    assert "stray_blocks" not in {i.kind for i in lint(S)}
+    S.set(10, 8, 2, "stone")  # a real leftover
+    strays = [i for i in lint(S) if i.kind == "stray_blocks"]
+    assert strays and strays[0].count == 1

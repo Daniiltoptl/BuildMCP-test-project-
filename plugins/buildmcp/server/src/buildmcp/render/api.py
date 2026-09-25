@@ -114,6 +114,9 @@ def render_view(scene, view: str = "iso", *, direction: str = "se", time: str = 
                               if time == "day" else None)
         return overlay_markers(img, cam, markers) if markers else img
     if view == "top":
+        if region is None:  # the map shows every marker, also those outside the blocks
+            for m in markers:
+                box = box.union(Box.of([int(math.floor(c)) for c in m.pos]))
         cam = top_camera(box, width, height)
         img, _ = r.render(cam, width, height, time, ss, reg_box, highlight=hl, background=MAP_BG)
         if grid:

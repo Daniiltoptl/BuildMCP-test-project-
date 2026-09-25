@@ -225,17 +225,41 @@ def paint_terrain(scene, ter: Terrain, theme, soil_depth: int = 3, strata: bool 
         put(band, alt)
 
 
-def decorate_underside(scene, ter: Terrain, theme, density: float = 0.035, seed: int = 0) -> int:
-    """Hanging roots, vines, glow berries, dripstone (or icicles / weeping vines by theme) under an island."""
+# glowing points set into the underside of islands: (embedded block, hanging below it or None)
+_UNDER_LIGHTS = {
+    "fantasy_medieval": [("amethyst_block", "amethyst_cluster[facing=down]"), ("glowstone", None),
+                         ("amethyst_block", "large_amethyst_bud[facing=down]")],
+    "asian_sakura": [("pearlescent_froglight", None), ("glowstone", None)],
+    "dark_infernal": [("shroomlight", "weeping_vines"), ("crying_obsidian", None), ("magma_block", None)],
+    "winter_north": [("pearlescent_froglight", None), ("sea_lantern", None), ("blue_ice", None)],
+}
+
+
+def decorate_underside(scene, ter: Terrain, theme, density: float = 0.035, seed: int = 0,
+                       lights: float = 0.006) -> int:
+    """Hanging roots, vines, glow berries, dripstone (or icicles / weeping vines by theme) under an island,
+    and a few glowing blocks set into the rock (``lights`` = share of the underside) so it is not a
+    black cone in the shade and sparkles at night."""
     T = _theme(theme)
     under = ter.underside
     if not under:
         return 0
     rng = np.random.default_rng(seed + 21)
-    spots = under.sample(density=density, min_dist=1.5, seed=seed + 22)
     placed = 0
+    kinds = _UNDER_LIGHTS.get(T.name, _UNDER_LIGHTS["fantasy_medieval"])
+    if lights > 0:
+        for (x, y, z) in under.sample(density=lights, min_dist=4, seed=seed + 23):
+            if scene.get(x, y - 1, z) != "minecraft:air":
+                continue
+            block, hang = kinds[int(rng.integers(0, len(kinds)))]
+            scene.set(x, y, z, block)
+            if hang:
+                scene.set(x, y - 1, z, hang)
+            placed += 1
+    spots = under.sample(density=density, min_dist=1.5, seed=seed + 22)
     for (x, y, z) in spots:
-        if scene.get(x, y - 1, z) != "minecraft:air":
+        if scene.get(x, y - 1, z) != "minecraft:air" or scene.get(x, y, z).startswith(
+                tuple("minecraft:" + b for b, _ in kinds)):
             continue
         r = rng.random()
         n = int(rng.integers(1, 6))

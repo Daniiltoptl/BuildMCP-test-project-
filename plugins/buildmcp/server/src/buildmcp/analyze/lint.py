@@ -131,6 +131,12 @@ def lint(scene, where=None, flat_area: int = 90, max_issues: int = 60) -> list[I
             # ignore hanging lights/chains and entity-like decorations
             deco = np.isin(kind, [F.LANTERN, F.CHAIN, F.HEAD, F.BANNER, F.WALL_BANNER, F.VINE])
             sel &= ~deco
+            # invisible technical blocks (light sources placed in the air on purpose) and things that
+            # float on water (lily pads) are not leftovers
+            names = [s.removeprefix("minecraft:").split("[", 1)[0] for s in scene.palette]
+            tech = np.array([n in ("light", "barrier", "structure_void") for n in names])
+            on_water = np.array([n in ("lily_pad", "frogspawn") for n in names])
+            sel &= ~tech[ids] & ~(on_water[ids] & (below_kind == F.LIQUID))
             if sel.any():
                 xs, ys, zs = np.nonzero(sel)
                 issues.append(Issue("hint", "stray_blocks",
