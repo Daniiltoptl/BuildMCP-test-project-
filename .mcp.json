@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "buildmcp": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--project", "plugins/buildmcp/server", "buildmcp"],
+      "env": {
+        "BUILDMCP_BUILDS_DIR": "builds",
+        "BUILDMCP_DATA": ".buildmcp-data"
+      }
+    }
+  }
+}

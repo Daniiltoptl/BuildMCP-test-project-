@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "buildmcp": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--frozen", "--project", "${CLAUDE_PLUGIN_ROOT}/server", "buildmcp"],
+      "env": {
+        "BUILDMCP_DATA": "${CLAUDE_PLUGIN_DATA}",
+        "NUMBA_CACHE_DIR": "${CLAUDE_PLUGIN_DATA}/numba-cache",
+        "BUILDMCP_BUILDS_DIR": "${user_config.builds_dir}",
+        "BUILDMCP_MC_VERSION": "${user_config.mc_version}",
+        "BUILDMCP_BRIDGE_URL": "${user_config.bridge_url}",
+        "BUILDMCP_BRIDGE_TOKEN": "${user_config.bridge_token}",
+        "BUILDMCP_RCON_HOST": "${user_config.rcon_host}",
+        "BUILDMCP_RCON_PORT": "${user_config.rcon_port}",
+        "BUILDMCP_RCON_PASSWORD": "${user_config.rcon_password}",
+        "BUILDMCP_SERVER_DIR": "${user_config.server_dir}"
+      }
+    }
+  }
+}

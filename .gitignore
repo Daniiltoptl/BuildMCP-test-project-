@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# BuildMCP runtime output (dev)
+/builds/
+/.buildmcp-data/
+
+# Java / Gradle (bridge)
+plugins/buildmcp/bridge/build/
+plugins/buildmcp/bridge/.gradle/
+plugins/buildmcp/bridge/run/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,64 @@
+{
+  "name": "buildmcp",
+  "displayName": "BuildMCP",
+  "version": "0.1.0",
+  "description": "Инструменты для постройки Minecraft-спавнов уровня топ-серверов: процедурная стройка, рендер с настоящими текстурами, проверка качества и вставка прямо на сервер (Paper + WorldEdit/FAWE или RCON).",
+  "author": {
+    "name": "Daniiltoptl"
+  },
+  "repository": "https://github.com/Daniiltoptl/BuildMCP-test-project-",
+  "license": "MIT",
+  "keywords": ["minecraft", "spawn", "worldedit", "schematic", "mcp", "builder"],
+  "userConfig": {
+    "builds_dir": {
+      "type": "directory",
+      "title": "Папка проектов",
+      "description": "Куда сохранять проекты построек (сцены, скрипты, рендеры, .schem). По умолчанию ~/BuildMCP",
+      "default": ""
+    },
+    "mc_version": {
+      "type": "string",
+      "title": "Версия Minecraft",
+      "description": "Версия сервера, например 1.21.4. auto — взять у сервера через мост",
+      "default": "auto"
+    },
+    "bridge_url": {
+      "type": "string",
+      "title": "Адрес моста BuildBridge",
+      "description": "HTTP-адрес плагина BuildBridge на сервере",
+      "default": "http://127.0.0.1:8765"
+    },
+    "bridge_token": {
+      "type": "string",
+      "title": "Токен BuildBridge",
+      "description": "Токен из plugins/BuildBridge/config.yml",
+      "sensitive": true
+    },
+    "rcon_host": {
+      "type": "string",
+      "title": "RCON хост",
+      "description": "Запасной способ вставки, если мост не установлен",
+      "default": "127.0.0.1"
+    },
+    "rcon_port": {
+      "type": "number",
+      "title": "RCON порт",
+      "description": "rcon.port из server.properties",
+      "default": 25575,
+      "min": 1,
+      "max": 65535
+    },
+    "rcon_password": {
+      "type": "string",
+      "title": "RCON пароль",
+      "description": "rcon.password из server.properties",
+      "sensitive": true
+    },
+    "server_dir": {
+      "type": "directory",
+      "title": "Папка сервера (если он на этом ПК)",
+      "description": "Тогда я сам поставлю мост в plugins/ и прочитаю токен",
+      "default": ""
+    }
+  }
+}

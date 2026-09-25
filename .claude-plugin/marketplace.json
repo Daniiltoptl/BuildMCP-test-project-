@@ -1,0 +1,14 @@
+{
+  "name": "buildmcp",
+  "description": "BuildMCP — постройка Minecraft-спавнов уровня топ-серверов с помощью Claude",
+  "owner": {
+    "name": "Daniiltoptl"
+  },
+  "plugins": [
+    {
+      "name": "buildmcp",
+      "source": "./plugins/buildmcp",
+      "description": "MCP-инструменты для стройки, рендера, проверки и вставки спавнов на сервер"
+    }
+  ]
+}
