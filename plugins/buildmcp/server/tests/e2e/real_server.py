@@ -24,6 +24,7 @@ from buildmcp.blocks.finalize import finalize
 from buildmcp.blocks.registry import get_registry, parse_state, resolve_version
 from buildmcp.gen import entities as E
 from buildmcp.live.bridge import BridgeClient, BridgeError
+from buildmcp.live.bundle import Bundle
 from buildmcp.live.connector import RconConnection
 from buildmcp.live.deploy import build_bundle, entity_tag_for
 from buildmcp.live.placer import plan_commands, run_plan
@@ -296,11 +297,25 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
     finalize(expected)
     poff = (2000, 70, 2000)
     rb, _, _ = build_bundle(raw, poff, version, world="world", backup=False)
-    plan = plan_commands(rb, version, strict=False)
+    # /setblock and /fill do not work out the shape of the block they place, but every placement
+    # updates its neighbours (and changed neighbours update theirs). So the connecting blocks go
+    # first (raw) and everything else after: each later neighbour makes the game recompute them.
+    kinds_b = raw.kind_lut()
+    connecting = np.zeros(len(rb.palette), dtype=bool)
+    for i, st in enumerate(rb.palette):
+        if i and st:
+            try:
+                connecting[i] = int(kinds_b[raw.id_of(st)]) in PARITY_KINDS
+            except Exception:  # noqa: BLE001
+                pass
+    first = Bundle(palette=rb.palette, cells=np.where(connecting[rb.cells], rb.cells, 0).astype(np.uint16),
+                   min=rb.min, header=dict(rb.header))
+    second = Bundle(palette=rb.palette, cells=np.where(connecting[rb.cells], 0, rb.cells).astype(np.uint16),
+                    min=rb.min, header=dict(rb.header))
     rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
     rc.connect()
-    placed = run_plan(rc, plan)
-    rep.check("parity scene placed over RCON", placed["failures"] == 0, result=placed)
+    placed = [run_plan(rc, plan_commands(b, version, strict=False)) for b in (first, second)]
+    rep.check("parity scene placed over RCON", all(r["failures"] == 0 for r in placed), result=placed)
     time.sleep(1.5)  # leaves/dripstone settle through scheduled ticks
     sd, _ = compare_region(client, raw, poff)
     kinds = expected.kind_lut()
