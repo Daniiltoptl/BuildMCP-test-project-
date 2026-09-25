@@ -20,6 +20,7 @@ JARS = [
     ("net.kyori", "examination-string", "1.3.0"),
     ("net.kyori", "adventure-text-serializer-plain", "4.17.0"),
     ("com.google.code.gson", "gson", "2.11.0"),
+    ("org.yaml", "snakeyaml", "2.2"),  # parses plugin.yml like Bukkit
 ]
 CENTRAL = "https://repo1.maven.org/maven2"
 

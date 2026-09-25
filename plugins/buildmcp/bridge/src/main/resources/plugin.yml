@@ -2,20 +2,20 @@ name: BuildBridge
 version: '${version}'
 main: dev.buildmcp.bridge.BuildBridgePlugin
 api-version: '1.21'
-description: Bridge between BuildMCP (Claude) and the server: 1:1 pastes without physics, backups and undo, world reading.
+description: 'BuildMCP (Claude) bridge - 1:1 pastes without physics, backups and undo, world reading'
 authors: [BuildMCP]
 website: https://github.com/Daniiltoptl/BuildMCP-test-project-
 softdepend: [WorldEdit, FastAsyncWorldEdit]
 commands:
   buildbridge:
-    description: BuildBridge status, jobs, undo
-    usage: /buildbridge <status|jobs|cancel|undo|backups|token|reload>
+    description: 'BuildBridge status, jobs, undo'
+    usage: '/buildbridge <status|jobs|cancel|undo|backups|token|reload>'
     aliases: [bb]
     permission: buildbridge.admin
 permissions:
   buildbridge.admin:
-    description: Use /buildbridge
+    description: 'Use /buildbridge'
     default: op
   buildbridge.notify:
-    description: See messages about pastes made by BuildMCP
+    description: 'See messages about pastes made by BuildMCP'
     default: op

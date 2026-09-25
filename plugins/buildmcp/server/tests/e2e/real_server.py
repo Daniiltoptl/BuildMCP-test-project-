@@ -216,108 +216,129 @@ def compare_region(client: BridgeClient, S: Scene, offset, region=None):
     return sd, bad
 
 
+def dump_log(srv: "Server", why: str) -> None:
+    """Print what the server said about the plugin (CI artifacts are not always reachable)."""
+    print(f"==== {why}; BuildBridge lines and the last 80 server log lines ====", flush=True)
+    for ln in srv.lines:
+        if "BuildBridge" in ln or "plugin.yml" in ln or "Could not load" in ln:
+            print("  " + ln)
+    print("  ----")
+    for ln in srv.lines[-80:]:
+        print("  " + ln)
+    sys.stdout.flush()
+
+
 def run(args) -> Report:
     rep = Report()
     version = resolve_version(args.version)
     srv = Server(Path(args.paper), Path(args.bridge), Path(args.dir))
     try:
-        srv.wait_ready()
-        client = BridgeClient(f"http://127.0.0.1:{srv.port}", TOKEN, timeout=60)
-        for _ in range(60):
-            try:
-                client.ping()
-                break
-            except BridgeError:
-                time.sleep(1)
-        st = client.status()
-        rep.check("status", st["data_version"] == get_registry(version).data_version, status=st)
-        version = resolve_version(st["minecraft"])
-        rep.check("bridge enabled without errors", not any("BuildBridge" in ln and ("ERROR" in ln or "Exception" in ln)
-                                                          for ln in srv.lines))
-
-        # 1. showcase paste + read back
-        S = showcase(version)
-        tag = entity_tag_for("e2e")
-        off = (1000, 70, 1000)
-        b, snap, info = build_bundle(S, off, version, world="world", label="e2e showcase", entity_tag=tag)
-        j = client.wait(client.paste(b)["id"], timeout=600)
-        rep.check("paste showcase", j["phase"] == "done" and j["placed"] == info["blocks"] and not j["warnings"],
-                  job=j, info=info)
-        sd, bad = compare_region(client, S, off)
-        rep.check("showcase blocks read back 1:1", not bad, mismatches=bad[:40], count=len(bad))
-        rep.check("block entities kept", len(sd.block_entities) >= len(S.block_entities),
-                  got=len(sd.block_entities), want=len(S.block_entities))
-        signs = [str(n) for (bid, n) in sd.block_entities.values() if bid.endswith("sign")]
-        rep.check("sign text kept", any("BuildMCP" in s for s in signs) and any("Стена" in s for s in signs),
-                  signs=signs[:3])
-        rep.check("entities placed", len([e for e in sd.entities if tag in str(e[2].get("Tags", ""))]) == len(S.entities),
-                  got=[e[0] for e in sd.entities], want=len(S.entities))
-        rep.check("biomes", "minecraft:cherry_grove" in (client.region((off[0], off[1], off[2], off[0] + 3, off[1],
-                                                                          off[2] + 3)).biome_palette or []))
-
-        # 2. identical re-paste changes nothing but block entities
-        j2 = client.wait(client.paste(b)["id"], timeout=600)
-        rep.check("re-paste is a no-op", j2["phase"] == "done" and j2["placed"] == len(b.tiles), job=j2)
-
-        # 3. undo twice -> flat world again
-        for k in range(2):
-            u = client.wait(client.undo()["id"], timeout=600)
-            rep.check(f"undo {k + 1}", u["phase"] == "done", job=u)
-        after = client.region((off[0], off[1] + 1, off[2], off[0] + 31, off[1] + 12, off[2] + 31)).to_structure()
-        rep.check("undo restores the world", set(after.palette[int(v)] for v in np.unique(after.data)) == {"minecraft:air"}
-                  and not after.entities, palette=after.palette[:10], entities=len(after.entities))
-
-        # 4. finalize parity: the game computes shapes itself when placing without strict mode
-        raw = parity_scene(version)
-        expected = Scene.from_bytes(raw.to_bytes())
-        finalize(expected)
-        poff = (2000, 70, 2000)
-        rb, _, _ = build_bundle(raw, poff, version, world="world", backup=False)
-        plan = plan_commands(rb, version, strict=False)
-        cmds = [c for name, cs in plan.phases for c in cs]
-        rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
-        rc.connect()
-        for x1, z1, x2, z2 in plan.chunks:
-            rc.command(f"forceload add {x1} {z1} {x2} {z2}")
-        time.sleep(3)
-        for c in cmds:
-            rc.command(c)
-        sd, _ = compare_region(client, raw, poff)
-        kinds = expected.kind_lut()
-        bb = raw.bbox()
-        mism = {}
-        for x in range(bb.x1, bb.x2 + 1):
-            for y in range(bb.y1, bb.y2 + 1):
-                for z in range(bb.z1, bb.z2 + 1):
-                    idx = expected.get_id(x, y, z)
-                    name = parse_state(expected.palette[idx])[0]
-                    if int(kinds[idx]) not in PARITY_KINDS and name != "grass_block":
-                        continue
-                    got = sd.palette[int(sd.data[x - bb.x1, y - bb.y1, z - bb.z1])]
-                    if norm(got) != norm(expected.palette[idx]):
-                        mism.setdefault(F.KIND_NAMES.get(int(kinds[idx]), name), []).append(
-                            {"pos": [x, y, z], "finalize": expected.palette[idx], "game": got})
-        rep.check("finalize parity", not mism, counts={k: len(v) for k, v in mism.items()},
-                  examples={k: v[:6] for k, v in mism.items()})
-
-        # 5. RCON fallback paste (strict when the server supports it)
-        conn = RconConnection(rc, version)
-        R = showcase(version)
-        roff = (3000, 70, 3000)
-        rbun, _, _ = build_bundle(R, roff, version, world="world", entity_tag=entity_tag_for("e2e-rcon"))
-        res = conn.paste(rbun)
-        sd, bad = compare_region(client, R, roff)
-        rep.check("rcon paste", res.get("failures") == 0 and (not bad if conn.strict_supported() else True),
-                  result=res, mismatches=bad[:30], strict=conn.strict_supported())
-
-        # 6. heightmap of the flat world
-        hm = client.heightmap((-20, -20, -11, -11))
-        rep.check("heightmap", len(set(hm["heights"])) == 1, heights=sorted(set(hm["heights"])))
-        rep.check("server log has no BuildBridge errors",
-                  not [ln for ln in srv.lines if "BuildBridge" in ln and ("SEVERE" in ln or "Exception" in ln)],
-                  lines=[ln for ln in srv.lines if "BuildBridge" in ln][-20:])
+        return _run(args, rep, version, srv)
+    except BaseException:
+        dump_log(srv, "e2e crashed")
+        raise
     finally:
         srv.stop()
+
+
+def _run(args, rep: Report, version: str, srv: "Server") -> Report:
+    srv.wait_ready()
+    client = BridgeClient(f"http://127.0.0.1:{srv.port}", TOKEN, timeout=60)
+    for _ in range(60):
+        try:
+            client.ping()
+            break
+        except BridgeError:
+            time.sleep(1)
+    else:
+        raise RuntimeError(f"BuildBridge did not start listening on port {srv.port}")
+    st = client.status()
+    rep.check("status", st["data_version"] == get_registry(version).data_version, status=st)
+    version = resolve_version(st["minecraft"])
+    rep.check("bridge enabled without errors", not any("BuildBridge" in ln and ("ERROR" in ln or "Exception" in ln)
+                                                      for ln in srv.lines))
+
+    # 1. showcase paste + read back
+    S = showcase(version)
+    tag = entity_tag_for("e2e")
+    off = (1000, 70, 1000)
+    b, snap, info = build_bundle(S, off, version, world="world", label="e2e showcase", entity_tag=tag)
+    j = client.wait(client.paste(b)["id"], timeout=600)
+    rep.check("paste showcase", j["phase"] == "done" and j["placed"] == info["blocks"] and not j["warnings"],
+              job=j, info=info)
+    sd, bad = compare_region(client, S, off)
+    rep.check("showcase blocks read back 1:1", not bad, mismatches=bad[:40], count=len(bad))
+    rep.check("block entities kept", len(sd.block_entities) >= len(S.block_entities),
+              got=len(sd.block_entities), want=len(S.block_entities))
+    signs = [str(n) for (bid, n) in sd.block_entities.values() if bid.endswith("sign")]
+    rep.check("sign text kept", any("BuildMCP" in s for s in signs) and any("Стена" in s for s in signs),
+              signs=signs[:3])
+    rep.check("entities placed", len([e for e in sd.entities if tag in str(e[2].get("Tags", ""))]) == len(S.entities),
+              got=[e[0] for e in sd.entities], want=len(S.entities))
+    rep.check("biomes", "minecraft:cherry_grove" in (client.region((off[0], off[1], off[2], off[0] + 3, off[1],
+                                                                      off[2] + 3)).biome_palette or []))
+
+    # 2. identical re-paste changes nothing but block entities
+    j2 = client.wait(client.paste(b)["id"], timeout=600)
+    rep.check("re-paste is a no-op", j2["phase"] == "done" and j2["placed"] == len(b.tiles), job=j2)
+
+    # 3. undo twice -> flat world again
+    for k in range(2):
+        u = client.wait(client.undo()["id"], timeout=600)
+        rep.check(f"undo {k + 1}", u["phase"] == "done", job=u)
+    after = client.region((off[0], off[1] + 1, off[2], off[0] + 31, off[1] + 12, off[2] + 31)).to_structure()
+    rep.check("undo restores the world", set(after.palette[int(v)] for v in np.unique(after.data)) == {"minecraft:air"}
+              and not after.entities, palette=after.palette[:10], entities=len(after.entities))
+
+    # 4. finalize parity: the game computes shapes itself when placing without strict mode
+    raw = parity_scene(version)
+    expected = Scene.from_bytes(raw.to_bytes())
+    finalize(expected)
+    poff = (2000, 70, 2000)
+    rb, _, _ = build_bundle(raw, poff, version, world="world", backup=False)
+    plan = plan_commands(rb, version, strict=False)
+    cmds = [c for name, cs in plan.phases for c in cs]
+    rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
+    rc.connect()
+    for x1, z1, x2, z2 in plan.chunks:
+        rc.command(f"forceload add {x1} {z1} {x2} {z2}")
+    time.sleep(3)
+    for c in cmds:
+        rc.command(c)
+    sd, _ = compare_region(client, raw, poff)
+    kinds = expected.kind_lut()
+    bb = raw.bbox()
+    mism = {}
+    for x in range(bb.x1, bb.x2 + 1):
+        for y in range(bb.y1, bb.y2 + 1):
+            for z in range(bb.z1, bb.z2 + 1):
+                idx = expected.get_id(x, y, z)
+                name = parse_state(expected.palette[idx])[0]
+                if int(kinds[idx]) not in PARITY_KINDS and name != "grass_block":
+                    continue
+                got = sd.palette[int(sd.data[x - bb.x1, y - bb.y1, z - bb.z1])]
+                if norm(got) != norm(expected.palette[idx]):
+                    mism.setdefault(F.KIND_NAMES.get(int(kinds[idx]), name), []).append(
+                        {"pos": [x, y, z], "finalize": expected.palette[idx], "game": got})
+    rep.check("finalize parity", not mism, counts={k: len(v) for k, v in mism.items()},
+              examples={k: v[:6] for k, v in mism.items()})
+
+    # 5. RCON fallback paste (strict when the server supports it)
+    conn = RconConnection(rc, version)
+    R = showcase(version)
+    roff = (3000, 70, 3000)
+    rbun, _, _ = build_bundle(R, roff, version, world="world", entity_tag=entity_tag_for("e2e-rcon"))
+    res = conn.paste(rbun)
+    sd, bad = compare_region(client, R, roff)
+    rep.check("rcon paste", res.get("failures") == 0 and (not bad if conn.strict_supported() else True),
+              result=res, mismatches=bad[:30], strict=conn.strict_supported())
+
+    # 6. heightmap of the flat world
+    hm = client.heightmap((-20, -20, -11, -11))
+    rep.check("heightmap", len(set(hm["heights"])) == 1, heights=sorted(set(hm["heights"])))
+    rep.check("server log has no BuildBridge errors",
+              not [ln for ln in srv.lines if "BuildBridge" in ln and ("SEVERE" in ln or "Exception" in ln)],
+              lines=[ln for ln in srv.lines if "BuildBridge" in ln][-20:])
     return rep
 
 

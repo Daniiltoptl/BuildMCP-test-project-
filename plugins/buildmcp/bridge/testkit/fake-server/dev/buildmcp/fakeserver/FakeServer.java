@@ -82,9 +82,25 @@ public final class FakeServer implements Server {
                 + "max-tick-millis: 20\nmax-upload-mb: 64\nmax-cells: 5000000\nbackups:\n  enabled: true\n  keep: 5\n";
         Files.writeString(new File(pluginDir, "config.yml").toPath(), config, StandardCharsets.UTF_8);
 
-        JavaPlugin p = (JavaPlugin) Class.forName("dev.buildmcp.bridge.BuildBridgePlugin").getDeclaredConstructor().newInstance();
-        p.testkitInit(pluginDir, new PluginDescriptionFile("BuildBridge", "0.1.0-test", "dev.buildmcp.bridge.BuildBridgePlugin"),
-                List.of("buildbridge"));
+        // plugin.yml is parsed with SnakeYAML like Bukkit does, so a broken file fails here too
+        Map<String, Object> yml;
+        try (java.io.InputStream in = FakeServer.class.getClassLoader().getResourceAsStream("plugin.yml")) {
+            if (in == null) {
+                throw new IllegalStateException("plugin.yml not on the classpath");
+            }
+            yml = new org.yaml.snakeyaml.Yaml().load(in);
+        }
+        for (String key : List.of("name", "version", "main", "api-version")) {
+            if (!(yml.get(key) instanceof String)) {
+                throw new IllegalStateException("plugin.yml: '" + key + "' must be a string, got " + yml.get(key));
+            }
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> commands = (Map<String, Object>) yml.getOrDefault("commands", Map.of());
+        String main = (String) yml.get("main");
+        JavaPlugin p = (JavaPlugin) Class.forName(main).getDeclaredConstructor().newInstance();
+        p.testkitInit(pluginDir, new PluginDescriptionFile((String) yml.get("name"), "0.1.0-test", main),
+                new ArrayList<>(commands.keySet()));
         s.plugin = p;
 
         CountDownLatch ready = new CountDownLatch(1);
