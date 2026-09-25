@@ -2,8 +2,11 @@
 
 Blocks are merged into uniform cuboids (``fill``, at most 32768 blocks each). Order: solid blocks,
 then everything that needs support (plants, torches, doors...), then fluids, then block entities,
-entities and biomes. On 1.21.5+ ``strict`` placement skips block updates, like the bridge; older
-servers run neighbour updates (fences reconnect, sand falls), so the bridge gives better results.
+entities and biomes. Columns hanging from a ceiling (stalactites, weeping/cave vines, hanging moss)
+go last and top-down, one layer at a time: ``fill`` places bottom-up, and without strict mode a
+stalactite placed before the block it hangs from schedules its fall. On 1.21.5+ ``strict``
+placement skips block updates, like the bridge; older servers run neighbour updates (fences
+reconnect, sand falls), so the bridge gives better results.
 """
 
 from __future__ import annotations
@@ -90,6 +93,15 @@ def greedy_boxes(vals, include, max_volume):
 
 # placement groups
 SOLID, SUPPORTED, FLUID = 0, 1, 2
+
+
+def hangs_down(state: str) -> bool:
+    """Does this block hang from the block above it and break (on a scheduled tick) without it?"""
+    name, props, _ = parse_state(state)
+    if name == "pointed_dripstone":
+        return props.get("vertical_direction") == "down"
+    head = F.HANGING_PLANT_HEADS.get(name, name)
+    return F.HANGING_PLANT_DIR.get(head, 0) < 0 or name == "pale_hanging_moss"
 
 
 def _group(reg, state: str) -> int:
@@ -182,25 +194,41 @@ def plan_commands(b: Bundle, version: str, dimension: str | None = None, entity_
             tiles_by_pos[(x, y, z)] = snbt
 
     groups = np.zeros(len(b.palette), dtype=np.int8)
+    hanging = np.zeros(len(b.palette), dtype=np.bool_)
     for i, s in enumerate(b.palette):
         if i and s != SKIP:
             groups[i] = _group(reg, s)
+            hanging[i] = groups[i] != SOLID and hangs_down(s)  # waterlogged stalactites too
     cell_group = groups[b.cells]
-    names = {SOLID: "solid blocks", SUPPORTED: "attached blocks", FLUID: "fluids"}
-    for g in (SOLID, SUPPORTED, FLUID):
-        include = (b.cells != 0) & (cell_group == g) & ~tile_cells
-        if not include.any():
-            continue
-        boxes = greedy_boxes(b.cells, include, FILL_LIMIT)
+    cell_hanging = hanging[b.cells]
+
+    def box_commands(include) -> list[str]:
         cmds = []
-        for x1, y1, z1, x2, y2, z2, v in boxes.tolist():
+        for x1, y1, z1, x2, y2, z2, v in greedy_boxes(b.cells, include, FILL_LIMIT).tolist():
             state = b.palette[v]
             if (x1, y1, z1) == (x2, y2, z2):
                 cmds.append(f"{pre}setblock {ox + x1} {oy + y1} {oz + z1} {state}{mode}")
             else:
                 cmds.append(f"{pre}fill {ox + x1} {oy + y1} {oz + z1} {ox + x2} {oy + y2} {oz + z2} {state}"
                             f"{mode or ' replace'}")
-        plan.phases.append((names[g], cmds))
+        return cmds
+
+    names = {SOLID: "solid blocks", SUPPORTED: "attached blocks", FLUID: "fluids"}
+    for g in (SOLID, SUPPORTED, FLUID):
+        include = (b.cells != 0) & (cell_group == g) & ~tile_cells
+        if g != SOLID:
+            include &= ~cell_hanging
+        if include.any():
+            plan.phases.append((names[g], box_commands(include)))
+        if g == SUPPORTED:
+            hang = (b.cells != 0) & cell_hanging & ~tile_cells
+            cmds = []
+            for y in sorted(set(np.nonzero(hang.any(axis=(0, 2)))[0].tolist()), reverse=True):
+                layer = np.zeros_like(hang)
+                layer[:, y, :] = hang[:, y, :]
+                cmds += box_commands(layer)
+            if cmds:
+                plan.phases.append(("hanging blocks (top-down)", cmds))
 
     # block entities: block + NBT in one setblock when it fits, else setblock + data merge parts
     cmds = []

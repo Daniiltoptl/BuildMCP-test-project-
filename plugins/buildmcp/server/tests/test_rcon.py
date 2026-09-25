@@ -118,6 +118,29 @@ def test_paste_without_strict(fake):
     assert res["failures"] == 0 and _norm(fake.world.get(3, 70, 3))[0] == "grass_block"
 
 
+def test_hanging_columns_go_top_down():
+    # without strict mode a stalactite placed before the block it hangs from falls (seen on Paper)
+    S = Scene("1.21.4")
+    S.fill((0, 5, 0, 4, 5, 4), "dripstone_block")
+    for y in (1, 2, 3, 4):
+        S.set(1, y, 1, "pointed_dripstone[vertical_direction=down]")
+        S.set(3, y, 1, "pointed_dripstone[vertical_direction=down]")
+        S.set(2, y, 3, "weeping_vines")
+    S.set(0, 0, 0, "stone")
+    S.set(0, 1, 0, "pointed_dripstone[vertical_direction=up]")  # stalagmites grow from the floor
+    b, _, _ = build_bundle(S, (0, 70, 0), "1.21.4")
+    plan = plan_commands(b, "1.21.4")
+    names = [n for n, _ in plan.phases]
+    assert names.index("solid blocks") < names.index("hanging blocks (top-down)")
+    hang = dict(plan.phases)["hanging blocks (top-down)"]
+    ys = [int(c.split()[2]) for c in hang]
+    assert ys == sorted(ys, reverse=True) and len(set(ys)) == 4, hang
+    assert all(c.split()[2] == c.split()[5] for c in hang if c.startswith("fill")), hang  # one layer per fill
+    others = [c for n, cs in plan.phases if n != "hanging blocks (top-down)" for c in cs]
+    assert not any("vertical_direction=down" in c or "weeping_vines" in c for c in others)
+    assert any("vertical_direction=up" in c for c in dict(plan.phases)["attached blocks"])
+
+
 def test_connector_over_rcon(fake, monkeypatch, tmp_path):
     from buildmcp.live import connector
 

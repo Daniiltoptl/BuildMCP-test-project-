@@ -436,6 +436,8 @@ def _gravity(c: _Ctx) -> None:
                     c.set(*p, "minecraft:" + sub, "gravity_fixed")
 
 
+# Order matters: a wall's tall sides and post follow the collision shape of the block above it
+# (a fence's arms, stairs' corners, a lantern's hanging state), so walls go last.
 RULES: dict[str, Callable[[_Ctx], None]] = {
     "gravity": _gravity,
     "leaves": _leaves,
@@ -446,11 +448,11 @@ RULES: dict[str, Callable[[_Ctx], None]] = {
     "hanging_plants": _hanging_plants,
     "vines": _vines,
     "snowy": _snowy,
-    "walls": _walls,
     "fences": _fences_panes,
     "gates": _gates,
     "stairs": _stairs,
     "lanterns": _lanterns,
+    "walls": _walls,
 }
 
 

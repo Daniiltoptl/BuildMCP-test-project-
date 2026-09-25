@@ -37,10 +37,20 @@ jobs:
   e2e:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        minecraft: ["1.21.1", "1.21.4", "1.21.8", "latest"]
+        include:
+          - minecraft: "1.21.1"
+            java: "21"
+          - minecraft: "1.21.4"
+            java: "21"
+          - minecraft: "1.21.8"
+            java: "21"
+          # the newest Paper (26.x needs Java 25; the jar is built for Java 21 and runs on both)
+          - minecraft: "latest"
+            java: "25"
     defaults:
       run:
         working-directory: plugins/buildmcp/server
@@ -49,7 +59,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ matrix.java }}
       - uses: astral-sh/setup-uv@v6
       - uses: actions/download-artifact@v4
         with:
@@ -59,7 +69,10 @@ jobs:
         run: uv sync --frozen
       - name: Download Paper ${{ matrix.minecraft }}
         id: paper
-        run: echo "version=$(uv run python tests/e2e/get_paper.py ${{ matrix.minecraft }} /tmp/paper.jar)" >> "$GITHUB_OUTPUT"
+        run: |
+          v="$(uv run python tests/e2e/get_paper.py ${{ matrix.minecraft }} /tmp/paper.jar)"
+          echo "Paper $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Real server e2e (paste, read back, undo, finalize parity, RCON)
         run: >
           uv run python tests/e2e/real_server.py --paper /tmp/paper.jar

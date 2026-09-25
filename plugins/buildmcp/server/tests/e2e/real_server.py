@@ -27,7 +27,7 @@ from buildmcp.live.bridge import BridgeClient, BridgeError
 from buildmcp.live.bundle import Bundle
 from buildmcp.live.connector import RconConnection
 from buildmcp.live.deploy import build_bundle, entity_tag_for
-from buildmcp.live.placer import plan_commands, run_plan
+from buildmcp.live.placer import CommandPlan, plan_commands, run_plan
 from buildmcp.live.rcon import RconClient
 from buildmcp.scene import Scene
 
@@ -70,8 +70,12 @@ class Server:
                 self.ready.set()
 
     def wait_ready(self, timeout: float = 600.0):
-        if not self.ready.wait(timeout):
-            raise SystemExit("server did not start:\n" + "\n".join(self.lines[-60:]))
+        deadline = time.time() + timeout
+        while not self.ready.wait(1.0):
+            if self.proc.poll() is not None or time.time() > deadline:
+                time.sleep(0.5)  # let the pump thread drain the last lines
+                why = f"exited with code {self.proc.returncode}" if self.proc.poll() is not None else "timed out"
+                raise SystemExit(f"server did not start ({why}):\n" + "\n".join(self.lines[-60:]))
 
     def stop(self):
         if self.proc.poll() is None:
@@ -183,6 +187,7 @@ def norm(state: str):
 
 
 PARITY_KINDS = {F.FENCE, F.PANE, F.WALL, F.FENCE_GATE, F.STAIRS, F.MUSHROOM_BLOCK, F.DRIPSTONE, F.HANGING_PLANT}
+CONNECTING_KINDS = {F.FENCE, F.PANE, F.WALL, F.FENCE_GATE, F.STAIRS, F.MUSHROOM_BLOCK}
 
 
 # -------------------------------------------------------------------- tests
@@ -192,8 +197,19 @@ class Report:
 
     def check(self, name: str, ok: bool, **details):
         self.results.append({"name": name, "ok": bool(ok), **details})
-        print(("PASS " if ok else "FAIL ") + name + ("" if ok else "  " + json.dumps(details, ensure_ascii=False)[:2000]),
-              flush=True)
+        print(("PASS " if ok else "FAIL ") + name, flush=True)
+        if not ok:
+            for k, v in details.items():
+                if isinstance(v, dict) and v and all(isinstance(x, list) for x in v.values()):
+                    for group, items in v.items():  # e.g. examples per block kind
+                        for it in items:
+                            print(f"    {k}.{group}: " + json.dumps(it, ensure_ascii=False)[:900])
+                elif isinstance(v, list) and v and isinstance(v[0], dict):
+                    for it in v[:25]:
+                        print(f"    {k}: " + json.dumps(it, ensure_ascii=False)[:900])
+                else:
+                    print(f"    {k}: " + json.dumps(v, ensure_ascii=False, default=str)[:1500])
+            sys.stdout.flush()
 
     @property
     def ok(self) -> bool:
@@ -215,6 +231,41 @@ def compare_region(client: BridgeClient, S: Scene, offset, region=None):
                 if norm(got) != norm(reg.canonical(want)):
                     bad.append({"pos": [x, y, z], "want": want, "got": got})
     return sd, bad
+
+
+def log_exceptions(srv: "Server", since: int = 0, limit: int = 60) -> None:
+    """Print exceptions the server logged after line ``since`` (command errors hide them in chat)."""
+    out, lines = [], srv.lines[since:]
+    for i, ln in enumerate(lines):
+        if "Exception" in ln or "Error" in ln or "Caused by" in ln:
+            out += lines[i:i + 12]
+        if len(out) >= limit:
+            break
+    if out:
+        print("    ---- server log exceptions ----")
+        for ln in out[:limit]:
+            print("    | " + ln)
+        sys.stdout.flush()
+
+
+def probe_semantics(rc: RconClient, client: BridgeClient, base=(2600, 70, 2600)) -> dict:
+    """Info only: how /setblock without strict treats the placed block itself on this version."""
+    x, y, z = base
+    cmds = [f"setblock {x} {y} {z} stone", f"setblock {x} {y} {z + 1} oak_fence",  # stone, then fence
+            f"setblock {x + 3} {y} {z + 1} oak_fence", f"setblock {x + 3} {y} {z} stone",  # fence, then stone
+            f"setblock {x + 6} {y} {z} pointed_dripstone[vertical_direction=down]"]  # nothing above it
+    plan = CommandPlan(phases=[("probe", cmds)], chunks=[(x, z, x + 15, z + 15)], probes=[(x, y, z)])
+    res = run_plan(rc, plan)
+    time.sleep(1.0)
+    sd = client.region((x, y, z, x + 6, y, z + 1), tiles=False, entities=False).to_structure()
+
+    def at(dx, dz):
+        return sd.palette[int(sd.data[dx, 0, dz])].removeprefix("minecraft:")
+
+    info = {"fence placed after stone": at(0, 1), "fence placed before stone": at(3, 1),
+            "stalactite without support after 1 s": at(6, 0), "failures": res["failures"]}
+    print("INFO placement semantics: " + json.dumps(info), flush=True)
+    return info
 
 
 def dump_log(srv: "Server", why: str) -> None:
@@ -297,15 +348,17 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
     finalize(expected)
     poff = (2000, 70, 2000)
     rb, _, _ = build_bundle(raw, poff, version, world="world", backup=False)
-    # /setblock and /fill do not work out the shape of the block they place, but every placement
+    # A fence placed next to an existing block keeps the state it was given, but every placement
     # updates its neighbours (and changed neighbours update theirs). So the connecting blocks go
     # first (raw) and everything else after: each later neighbour makes the game recompute them.
+    # Blocks that hang from others (stalactites, vines) need their support first, top-down: the
+    # placer does that for the second part.
     kinds_b = raw.kind_lut()
     connecting = np.zeros(len(rb.palette), dtype=bool)
     for i, st in enumerate(rb.palette):
         if i and st:
             try:
-                connecting[i] = int(kinds_b[raw.id_of(st)]) in PARITY_KINDS
+                connecting[i] = int(kinds_b[raw.id_of(st)]) in CONNECTING_KINDS
             except Exception:  # noqa: BLE001
                 pass
     first = Bundle(palette=rb.palette, cells=np.where(connecting[rb.cells], rb.cells, 0).astype(np.uint16),
@@ -314,8 +367,11 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
                     min=rb.min, header=dict(rb.header))
     rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
     rc.connect()
+    mark = len(srv.lines)
     placed = [run_plan(rc, plan_commands(b, version, strict=False)) for b in (first, second)]
     rep.check("parity scene placed over RCON", all(r["failures"] == 0 for r in placed), result=placed)
+    if not all(r["failures"] == 0 for r in placed):
+        log_exceptions(srv, mark)
     time.sleep(1.5)  # leaves/dripstone settle through scheduled ticks
     sd, _ = compare_region(client, raw, poff)
     kinds = expected.kind_lut()
@@ -343,7 +399,9 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
                         {"pos": [x, y, z], "finalize": expected.palette[idx].removeprefix("minecraft:"), "game": got,
                          "game_neighbours": nbs})
     rep.check("finalize parity", not mism, counts={k: len(v) for k, v in mism.items()},
-              examples={k: v[:3] for k, v in mism.items()})
+              examples={k: v[:8] for k, v in mism.items()})
+
+    rep.results.append({"name": "placement semantics (info)", "ok": True, **probe_semantics(rc, client)})
 
     # 5. RCON fallback paste (strict when the server supports it)
     conn = RconConnection(rc, version)

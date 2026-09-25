@@ -130,6 +130,24 @@ def test_finalize_rules():
     assert "persistent=true" in S.get(10, 1, 10)
 
 
+def test_wall_under_fence_follows_its_arms():
+    # seen on real Paper: a fence above a wall makes the wall sides under its arms tall
+    S = Scene("1.21.4")
+    S.fill((0, 0, 0, 6, 0, 6), "stone")
+    for z in range(1, 5):
+        S.set(3, 1, z, "mossy_stone_brick_wall")
+    S.set(2, 1, 2, "mossy_stone_brick_wall")
+    S.set(4, 1, 2, "mossy_stone_brick_wall")
+    for z in (1, 2, 3):
+        S.set(3, 2, z, "oak_fence")
+    finalize(S)
+    w = S.get(3, 1, 2)
+    assert "north=tall" in w and "south=tall" in w and "east=low" in w and "west=low" in w, w
+    assert "up=false" in w, w  # north and south both tall: no post
+    end = S.get(3, 1, 3)  # fence above has only a north arm
+    assert "north=tall" in end and "south=low" in end, end
+
+
 @pytest.mark.parametrize("version", [2, 3])
 def test_schem_roundtrip(tmp_path, version):
     S = Scene("1.21.4")
