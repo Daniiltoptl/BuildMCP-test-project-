@@ -90,14 +90,16 @@ def bench(scene, at, facing: str = "south", length: int = 3, *, theme=None) -> N
 
 
 def fountain(scene, at, radius: float = 4.0, *, theme=None, tiers: int = 2, liquid: str | None = None,
-             centerpiece: str | None = None, lit: bool = True) -> Mask:
+             centerpiece: str | None = None, lit: bool = True, material: str | None = None) -> Mask:
     """Round fountain standing on the ground block ``at``: a pool with a raised rim you can sit on
     (a step all around), a pedestal with bowls and four spouts falling into the pool, lights under
-    the water (``lit``). ``centerpiece`` on top: None (water) | "crystal" (amethyst) | "lamp" | a block."""
+    the water (``lit``). ``centerpiece`` on top: None (water) | "crystal" (amethyst) | "lamp" | a block.
+    ``material``: rim and bowls (a block with stairs and slabs, e.g. "smooth_quartz" to stand out
+    against grey stone); default the theme trim."""
     T = _theme(theme)
     cx, gy, cz = at[0] + 0.5, int(at[1]), at[2] + 0.5
     liquid = liquid or T.liquid
-    trim = _fam(scene, T.trim)
+    trim = _fam(scene, material or T.trim)
     dark = _fam(scene, getattr(T, "trim_dark", "") or T.trim)
     R = float(radius)
     disc = lambda rr, y: shapes.circle((cx, y, cz), rr, filled=True)  # noqa: E731

@@ -150,8 +150,10 @@ class Bundle:
 def _parse_snbt(snbt: str):
     import nbtlib
 
+    from ..io.snbt import parse_snbt
+
     try:
-        tag = nbtlib.parse_nbt(snbt)
-    except Exception:  # noqa: BLE001 - odd SNBT from other versions: keep the block, drop the NBT
+        tag = parse_snbt(snbt)  # 1.21.5+ prints escapes and mixed lists that nbtlib alone rejects
+    except Exception:  # noqa: BLE001 - unreadable SNBT: keep the block, drop the NBT
         return nbtlib.Compound()
     return nbtlib.Compound(tag) if isinstance(tag, nbtlib.Compound) else nbtlib.Compound()

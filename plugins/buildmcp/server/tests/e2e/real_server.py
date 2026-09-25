@@ -27,7 +27,7 @@ from buildmcp.live.bridge import BridgeClient, BridgeError
 from buildmcp.live.bundle import Bundle
 from buildmcp.live.connector import RconConnection
 from buildmcp.live.deploy import build_bundle, entity_tag_for
-from buildmcp.live.placer import CommandPlan, plan_commands, run_plan
+from buildmcp.live.placer import CommandPlan, plan_commands, query_gamerule, run_plan
 from buildmcp.live.rcon import RconClient
 from buildmcp.scene import Scene
 
@@ -304,6 +304,14 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
             time.sleep(1)
     else:
         raise RuntimeError(f"BuildBridge did not start listening on port {srv.port}")
+    rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
+    rc.connect()
+    # no random ticks: grass decaying or crops growing between two reads would look like paste bugs
+    rules = {r: query_gamerule(rc, r)[0] for r in ("randomTickSpeed", "doFireTick")}
+    for r, name in rules.items():
+        if name:
+            rc.command(f"gamerule {name} {0 if r == 'randomTickSpeed' else 'false'}")
+    print("INFO game rules: " + json.dumps(rules), flush=True)
     st = client.status()
     rep.check("status", st["data_version"] == get_registry(version).data_version, status=st)
     version = resolve_version(st["minecraft"])
@@ -325,8 +333,11 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
     signs = [str(n) for (bid, n) in sd.block_entities.values() if bid.endswith("sign")]
     rep.check("sign text kept", any("BuildMCP" in s for s in signs) and any("Стена" in s for s in signs),
               signs=signs[:3])
-    rep.check("entities placed", len([e for e in sd.entities if tag in str(e[2].get("Tags", ""))]) == len(S.entities),
-              got=[e[0] for e in sd.entities], want=len(S.entities))
+    tagged = [e for e in sd.entities if tag in [str(t) for t in e[2].get("Tags", [])]]
+    rep.check("entities placed", len(tagged) == len(S.entities), got=[e[0] for e in sd.entities], want=len(S.entities),
+              raw=[] if len(tagged) == len(S.entities) else
+              [e[4][:500] for e in client.region((off[0], off[1], off[2], off[0] + 31, off[1] + 13, off[2] + 31),
+                                                 tiles=False, entities=True).entities])
     rep.check("biomes", "minecraft:cherry_grove" in (client.region((off[0], off[1], off[2], off[0] + 3, off[1],
                                                                       off[2] + 3)).biome_palette or []))
 
@@ -365,8 +376,6 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
                    min=rb.min, header=dict(rb.header))
     second = Bundle(palette=rb.palette, cells=np.where(connecting[rb.cells], 0, rb.cells).astype(np.uint16),
                     min=rb.min, header=dict(rb.header))
-    rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
-    rc.connect()
     mark = len(srv.lines)
     placed = [run_plan(rc, plan_commands(b, version, strict=False)) for b in (first, second)]
     rep.check("parity scene placed over RCON", all(r["failures"] == 0 for r in placed), result=placed)

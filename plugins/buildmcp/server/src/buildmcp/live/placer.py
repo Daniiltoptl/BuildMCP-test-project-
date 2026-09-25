@@ -11,6 +11,7 @@ reconnect, sand falls), so the bridge gives better results.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -317,7 +318,7 @@ def biome_commands(palette: list[str], grid: np.ndarray, ox: int, oz: int, y1: i
 
 _FAIL_MARKERS = ("unknown", "incorrect", "invalid", "expected", "error", "not loaded", "too many", "unable",
                  "cannot", "could not parse", "failed", "no entity", "is not", "out of the world")
-_BENIGN = ("no blocks were filled", "could not set the block", "nothing changed")
+_BENIGN = ("no blocks were filled", "could not set the block", "nothing changed", "no biome entries were changed")
 
 
 def is_failure(out: str, command: str = "") -> bool:
@@ -329,6 +330,22 @@ def is_failure(out: str, command: str = "") -> bool:
     return any(m in t for m in _FAIL_MARKERS)
 
 
+_GAMERULE_VALUE = re.compile(r"set to:?\s*(\S+)\s*$", re.I)
+
+
+def query_gamerule(rcon: RconClient, name: str) -> tuple[str | None, str | None]:
+    """(name the server knows, current value) of a game rule, or (None, None).
+
+    ``name`` is the classic camelCase id (``logAdminCommands``); newer releases use snake_case
+    (``log_admin_commands``), so both are tried."""
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+    for n in dict.fromkeys((name, snake)):
+        m = _GAMERULE_VALUE.search(rcon.command(f"gamerule {n}").strip())
+        if m:
+            return n, m.group(1)
+    return None, None
+
+
 def run_plan(rcon: RconClient, plan: CommandPlan, on_progress=None, load_timeout: float = 60.0) -> dict:
     """Execute a plan over RCON: force-load chunks, run every phase, release the chunks."""
     t0 = time.time()
@@ -338,10 +355,10 @@ def run_plan(rcon: RconClient, plan: CommandPlan, on_progress=None, load_timeout
     done = 0
     admin_log = None
     try:
-        out = rcon.command("gamerule logAdminCommands")
-        if "true" in out.lower():
-            admin_log = True
-            rcon.command("gamerule logAdminCommands false")  # no chat spam for operators
+        rule, value = query_gamerule(rcon, "logAdminCommands")
+        if rule and value == "true":
+            admin_log = rule
+            rcon.command(f"gamerule {rule} false")  # no chat spam for operators
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -373,7 +390,7 @@ def run_plan(rcon: RconClient, plan: CommandPlan, on_progress=None, load_timeout
                 pass
         if admin_log:
             try:
-                rcon.command("gamerule logAdminCommands true")
+                rcon.command(f"gamerule {admin_log} true")
             except Exception:  # noqa: BLE001
                 pass
     return {"commands": total, "failures": failures, "seconds": round(time.time() - t0, 1),

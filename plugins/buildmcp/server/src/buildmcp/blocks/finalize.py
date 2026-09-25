@@ -298,6 +298,56 @@ def _beds(c: _Ctx) -> None:
                 c.set(x - dx, y, z - dz, _with(name, props, part="foot"), "beds")
 
 
+_SPREADING = {"grass_block", "mycelium"}  # these turn into dirt when covered
+_WATERY = {"bubble_column", "kelp", "kelp_plant", "seagrass", "tall_seagrass"}  # always full of water
+_SHAPE_OCCLUDERS = {"dirt_path", "farmland"}  # partial blocks whose full bottom face blocks light
+
+
+def _covers_grass(c: _Ctx, idx: int) -> bool:
+    """Would this block above grass turn it into dirt (on a random tick, like the game)?"""
+    if idx == 0:
+        return False
+    name, props = c.dec(idx)
+    if name == "snow":
+        return props.get("layers", "1") != "1"
+    if name in ("water", "lava"):
+        lvl = int(props.get("level", "0"))
+        return lvl == 0 or lvl >= 8  # a source or a falling column is a full fluid block
+    if name in _WATERY or props.get("waterlogged") == "true":
+        return True
+    if name.endswith("_slab"):
+        return props.get("type") in ("bottom", "double")
+    if name.endswith("_stairs"):
+        return props.get("half") == "bottom"
+    if name in _SHAPE_OCCLUDERS:
+        return True
+    try:
+        return c.reg.info(name).filter_light >= 15
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _grass_decay(c: _Ctx) -> None:
+    """Grass and mycelium under an opaque block, a bottom slab/stairs, 2+ snow layers or water become
+    dirt in the game after a few random ticks; do it now so the paste looks the same an hour later."""
+    pal = c.scene.palette
+    cand = [i for i, st in enumerate(pal) if parse_state(st)[0] in _SPREADING]
+    if not cand:
+        return
+    mask = np.isin(c.ids, cand)
+    mask[[0, -1], :, :] = False
+    mask[:, [0, -1], :] = False
+    mask[:, :, [0, -1]] = False
+    cache: dict[int, bool] = {}
+    for p in zip(*[a.tolist() for a in np.nonzero(mask)]):
+        above = c.nb(*p, "up")
+        hit = cache.get(above)
+        if hit is None:
+            hit = cache[above] = _covers_grass(c, above)
+        if hit:
+            c.set(*p, "minecraft:dirt", "grass_decay")
+
+
 _SNOWY = {"grass_block", "podzol", "mycelium"}
 
 
@@ -447,6 +497,7 @@ RULES: dict[str, Callable[[_Ctx], None]] = {
     "dripstone": _dripstone,
     "hanging_plants": _hanging_plants,
     "vines": _vines,
+    "grass_decay": _grass_decay,
     "snowy": _snowy,
     "fences": _fences_panes,
     "gates": _gates,

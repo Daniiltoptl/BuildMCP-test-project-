@@ -148,6 +148,25 @@ def test_wall_under_fence_follows_its_arms():
     assert "north=tall" in end and "south=low" in end, end
 
 
+def test_grass_under_cover_turns_to_dirt():
+    S = Scene("1.21.4")
+    S.fill((0, 0, 0, 12, 0, 2), "grass_block")
+    cover = ["stone", "oak_slab[type=bottom]", "oak_slab[type=top]", "oak_stairs[half=bottom]",
+             "oak_stairs[half=top]", "snow[layers=1]", "snow[layers=3]", "glass", "oak_leaves", "water",
+             "water[level=3]", "oak_fence[waterlogged=true]"]
+    for x, st in enumerate(cover):
+        S.set(x, 1, 1, st)
+    finalize(S)
+    got = {st: S.get(x, 0, 1).removeprefix("minecraft:").split("[")[0] for x, st in enumerate(cover)}
+    assert got == {"stone": "dirt", "oak_slab[type=bottom]": "dirt", "oak_slab[type=top]": "grass_block",
+                   "oak_stairs[half=bottom]": "dirt", "oak_stairs[half=top]": "grass_block",
+                   "snow[layers=1]": "grass_block", "snow[layers=3]": "dirt", "glass": "grass_block",
+                   "oak_leaves": "grass_block", "water": "dirt", "water[level=3]": "grass_block",
+                   "oak_fence[waterlogged=true]": "dirt"}, got
+    assert "snowy=true" in S.get(5, 0, 1)
+    assert S.get(12, 0, 1).startswith("minecraft:grass_block")  # open sky
+
+
 @pytest.mark.parametrize("version", [2, 3])
 def test_schem_roundtrip(tmp_path, version):
     S = Scene("1.21.4")

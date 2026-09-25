@@ -486,6 +486,8 @@ final class PasteJob extends Job {
             done = cursor;
             if (r.hasKey("commands.fillbiome.success")) {
                 biomesOk++;
+            } else if (r.text().toLowerCase(Locale.ROOT).contains("no biome entries were changed")) {
+                biomesOk++; // newer servers report "already that biome" as a failure
             } else {
                 warn("biome: " + shorten(r.text()));
             }

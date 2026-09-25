@@ -118,6 +118,23 @@ def test_paste_without_strict(fake):
     assert res["failures"] == 0 and _norm(fake.world.get(3, 70, 3))[0] == "grass_block"
 
 
+def test_gamerule_names_old_and_new(fake):
+    from buildmcp.live.placer import query_gamerule
+
+    base = fake.run
+
+    def newer(cmd):  # a server that only knows snake_case rule ids
+        if cmd.startswith("gamerule ") and any(ch.isupper() for ch in cmd.split()[1]):
+            return "Incorrect argument for command at position 9: gamerule <--[HERE]"
+        return base(cmd)
+
+    with RconClient("127.0.0.1", fake.port, "pw") as r:
+        assert query_gamerule(r, "logAdminCommands") == ("logAdminCommands", "true")
+        fake.run = newer
+        fake.gamerules["log_admin_commands"] = "false"
+        assert query_gamerule(r, "logAdminCommands") == ("log_admin_commands", "false")
+
+
 def test_hanging_columns_go_top_down():
     # without strict mode a stalactite placed before the block it hangs from falls (seen on Paper)
     S = Scene("1.21.4")
