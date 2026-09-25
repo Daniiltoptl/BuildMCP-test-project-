@@ -65,6 +65,7 @@ class Theme:
     wood_trim: str  # wood family base (planks)
     roof: str  # family base for roof stairs/slabs
     roof_accent: str
+    trim_dark: str = ""  # contrasting stone/wood family for ribs, bands, frames (hero details)
     tree_kinds: list = field(default_factory=list)
     roof_style: str = "gable"
     lamp_style: str = "post"
@@ -148,7 +149,7 @@ register(Theme(
     crystal=patches({"amethyst_block": 3, "purple_stained_glass": 1, "budding_amethyst": 1}, size=2),
     metal="chain", water="water", liquid="water", accent=mix({"gold_block": 1}),
     trim="stone_bricks", wood_trim="spruce_planks", roof="deepslate_tiles", roof_accent="dark_oak_planks",
-    tree_kinds=["oak_giant", "oak", "birch", "willow"], roof_style="gable", lamp_style="post",
+    trim_dark="polished_deepslate", tree_kinds=["oak_giant", "oak", "birch", "willow"], roof_style="gable", lamp_style="post",
     notes="Летающие острова, каменные башни с тёмными черепичными крышами, фахверк, светлый камень + тёмное дерево.",
 ))
 
@@ -178,6 +179,7 @@ register(Theme(
     crystal=patches({"pink_stained_glass": 2, "white_stained_glass": 1}, size=2),
     metal="chain", water="water", liquid="water", accent=mix({"red_terracotta": 1}),
     trim="polished_andesite", wood_trim="dark_oak_planks", roof="deepslate_tiles", roof_accent="mangrove_planks",
+    trim_dark="dark_oak_planks",
     tree_kinds=["cherry", "cherry", "pine", "bush"], roof_style="asian", lamp_style="stone_lantern",
     notes="Сакура, пагоды с загнутыми краями крыш, красные колонны, белые стены, гравийные дорожки, пруды с кувшинками.",
 ))
@@ -212,6 +214,7 @@ register(Theme(
     crystal=patches({"crying_obsidian": 2, "obsidian": 3, "red_stained_glass": 1}, size=2),
     metal="chain", water="lava", liquid="lava", accent=mix({"gold_block": 1, "gilded_blackstone": 1}),
     trim="polished_blackstone", wood_trim="crimson_planks", roof="deepslate_tiles", roof_accent="nether_bricks",
+    trim_dark="red_nether_bricks",
     tree_kinds=["fungus_giant", "dead", "fungus_giant"], roof_style="gothic", lamp_style="brazier",
     notes="Блэкстоун и базальт, готика, шипы, лавопады, огни душ, огромные грибы и мёртвые деревья, контраст красного и бирюзы.",
 ))
@@ -243,6 +246,7 @@ register(Theme(
     crystal=patches({"blue_ice": 3, "packed_ice": 2, "light_blue_stained_glass": 1}, size=2),
     metal="chain", water="water", liquid="water", accent=mix({"blue_ice": 1}),
     trim="stone_bricks", wood_trim="spruce_planks", roof="spruce_planks", roof_accent="dark_oak_planks",
+    trim_dark="deepslate_bricks",
     tree_kinds=["pine", "pine", "birch"], roof_style="nordic", lamp_style="post",
     notes="Снег слоями, ели со снежными шапками, скандинавские дома из ели с крутыми крышами, лёд, тёплый свет в окнах.",
 ))

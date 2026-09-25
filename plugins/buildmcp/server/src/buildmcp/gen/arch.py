@@ -202,8 +202,9 @@ def stairify(scene, where, material: str, *, only_top: bool = True) -> int:
 
 
 def cone_roof(scene, center, radius: float, height: float | None = None, *, theme=None, material: str | None = None,
-              base_y: int | None = None, overhang: float = 1.0, spire: bool = True) -> Mask:
-    """Round tower roof (witch hat) with stairs smoothing and an optional spire."""
+              base_y: int | None = None, overhang: float = 1.0, spire: bool = True, finial: str | None = None) -> Mask:
+    """Round tower roof (witch hat) with stairs smoothing and an optional spire.
+    ``finial``: block on top of the spire (e.g. "gold_block"); default is the theme metal."""
     T = _theme(theme)
     cx, cy, cz = float(center[0]), float(center[1]), float(center[2])
     by = int(cy) if base_y is None else int(base_y)
@@ -215,9 +216,15 @@ def cone_roof(scene, center, radius: float, height: float | None = None, *, them
     stairify(scene, cone, mat)
     if spire:
         top = by + int(hgt)
-        for k in range(3):
-            scene.set(int(math.floor(cx)), top + k, int(math.floor(cz)), _wall_of(scene, T.trim) if k < 2 else T.metal)
-        scene.set(int(math.floor(cx)), top + 3, int(math.floor(cz)), "lightning_rod")
+        fx, fz = int(math.floor(cx)), int(math.floor(cz))
+        for k in range(2):
+            scene.set(fx, top + k, fz, _wall_of(scene, getattr(T, "trim_dark", "") or T.trim))
+        if finial:
+            scene.put((fx, top + 2, fz), finial)
+            scene.set(fx, top + 3, fz, "lightning_rod")
+        else:
+            scene.set(fx, top + 2, fz, T.metal)
+            scene.set(fx, top + 3, fz, "lightning_rod")
     return cone
 
 
@@ -391,44 +398,160 @@ def door(scene, pos, facing: str, *, theme=None, width: int = 1, lamps: bool = T
 
 # ======================================================================= towers
 def tower(scene, center, radius: float, height: int, *, theme=None, shape: str = "round", roof: str = "cone",
-          windows: bool = True, band_every: int = 6, buttresses: int = 0, material=None, seed: int = 0) -> Mask:
+          windows: bool = True, band_every: int = 6, buttresses: int = 0, material=None, seed: int = 0,
+          roof_material: str | None = None, trim_material: str | None = None, ribs: int | None = None,
+          balcony: int | None = None, turrets: int = 0, lit: bool = True, finial: str | None = None,
+          door: str | None = None) -> Mask:
     """Tower standing on ``center`` (x, ground y, z). shape: round | square | octagon.
-    roof: cone | dome | onion | battlements | pyramid | asian | none."""
+    roof: cone | dome | onion | battlements | pyramid | asian | none.
+
+    Hero details: battered plinth, weathered base fading into ``material``, vertical ``ribs`` (pilasters,
+    default by size; corners on square/octagon), dark trim bands every ``band_every``, framed windows lit
+    from inside (``lit``), a ``balcony`` ring (height above the ground), ``turrets`` corbelled out under
+    the roof, ``roof_material`` (e.g. "dark_prismarine") with a ``finial`` on the spire (default gold for
+    towers with turrets), ``door`` = side of an arched entrance (north|south|east|west).
+    ``trim_material`` = family for ribs/bands/frames (default: the theme's dark trim).
+    """
     T = _theme(theme)
     cx, cy, cz = float(center[0]) + 0.5, int(center[1]), float(center[2]) + 0.5
     r = float(radius)
     mat = material or T.wall
     trim = _fam(scene, T.trim)
+    dark = _fam(scene, trim_material or getattr(T, "trim_dark", "") or T.trim)
+    dark_block = dark.base
+    top_y = cy + height
+    sides = {"square": 4, "octagon": 8}.get(shape, 0)
+    rot = {"square": 45.0, "octagon": 22.5}.get(shape, 0.0)
     cells = []
 
     def footprint(rr: float, y: int, filled: bool):
         if shape == "round":
             return shapes.circle((cx, y, cz), rr, filled=filled, thickness=1.2)
-        sides = 4 if shape == "square" else 8
-        rot = 45 if shape == "square" else 22.5
-        return shapes.polygon(shapes.regular_polygon((cx, cz), rr / (math.cos(math.pi / sides) if shape == "square" else 1), sides, rot),
-                              y, filled=filled)
+        return shapes.polygon(shapes.regular_polygon((cx, cz), rr / (math.cos(math.pi / sides) if shape == "square" else 1),
+                                                     sides, rot), y, filled=filled)
 
-    # base flare (slightly wider bottom)
-    for y in range(cy, cy + height):
+    def at_angle(a: float, rr: float) -> tuple[int, int]:
+        return int(math.floor(cx + math.cos(a) * rr)), int(math.floor(cz + math.sin(a) * rr))
+
+    # shaft: weathered base fading into the wall material
+    fade = max(4, int(height * 0.3))
+    wall_pal = P.gradient([T.wall_base, mat], axis="y", start=cy + 1, end=cy + fade, jitter=1.2)
+    for y in range(cy, top_y):
         flare = 1.0 if y - cy < 2 else 0.0
         ring = footprint(r + flare, y, filled=False)
         inner = footprint(r + flare - 1.2, y, filled=True)
         wall = ring | (footprint(r + flare, y, True) - inner)
-        pal = T.wall_base if y - cy < 3 else mat
-        scene.put(wall, pal)
+        scene.put(wall, wall_pal)
         cells.extend(wall.points().tolist())
         scene.put(inner, "air")
         if y == cy:
             scene.put(inner, T.floor)
-    # trim bands (upside-down stairs ring facing inward = sticking out)
-    for y in range(cy + band_every, cy + height, band_every):
-        ring = footprint(r + 1, y, filled=False)
-        _stair_ring(scene, ring, cx, cz, trim.stairs, half="top")
-    top_y = cy + height
-    # machicolation corbels + parapet
-    ring = footprint(r + 1, top_y - 1, filled=False)
-    _stair_ring(scene, ring, cx, cz, trim.stairs, half="top")
+    # battered plinth: sloped skirt of dark stairs over the flare
+    _stair_ring(scene, footprint(r + 1, cy + 2, filled=False), cx, cz, dark.stairs, half="bottom")
+
+    # ribs / corner pilasters
+    if sides:
+        rib_angles = [math.radians(rot + 360.0 * k / sides) for k in range(sides)]
+        rib_r = (r / math.cos(math.pi / sides) if shape == "square" else r) + 0.35
+    else:
+        n = ribs if ribs is not None else (6 if r >= 5.5 else 4 if r >= 4 else 0)
+        rib_angles = [2 * math.pi * k / n + math.pi / n for k in range(n)] if n else []
+        rib_r = r + 0.7
+    if ribs == 0:
+        rib_angles = []
+    rib_block = trim.base
+    for a in rib_angles:
+        x, z = at_angle(a, rib_r)
+        for y in range(cy + 3, top_y - 1):
+            scene.set(x, y, z, rib_block)
+        if dark.stairs:
+            scene.set(x, cy + 2, z, f"{dark.stairs}[facing={_face_to(x + 0.5, z + 0.5, cx, cz)},half=bottom]")
+
+    # trim bands (upside-down stairs sticking out)
+    for y in range(cy + band_every, top_y - 2, band_every):
+        _stair_ring(scene, footprint(r + 1, y, filled=False), cx, cz, dark.stairs, half="top")
+
+    # windows between the ribs: glass, sill, brow, light inside
+    if windows:
+        if rib_angles:
+            gaps = [a + math.pi / max(1, len(rib_angles)) for a in rib_angles]
+        else:
+            gaps = [k * math.pi / 2 for k in range(4)]
+        win_h = 3 if band_every >= 7 else 2
+        for j, yb in enumerate(range(cy + band_every + 2, top_y - 2 - win_h, band_every)):
+            for k, a in enumerate(gaps):
+                if len(gaps) > 4 and (k + j) % 2:
+                    continue
+                wx, wz = at_angle(a, r - 0.45)
+                ox, oz = at_angle(a, r + 0.9)
+                ix, iz = at_angle(a, r - 1.9)
+                facing_out = _face_to(cx, cz, ox + 0.5, oz + 0.5)
+                for h in range(win_h):
+                    scene.set(wx, yb + h, wz, T.window)
+                if dark.slab and scene.get(ox, yb - 1, oz) == "minecraft:air":
+                    scene.set(ox, yb - 1, oz, f"{dark.slab}[type=top]")
+                if dark.stairs and scene.get(ox, yb + win_h, oz) == "minecraft:air":
+                    scene.set(ox, yb + win_h, oz, f"{dark.stairs}[facing={OPP.get(facing_out, facing_out)},half=top]")
+                if lit and (k + j) % 2 == 0 and scene.get(ix, yb + 1, iz) == "minecraft:air":
+                    scene.set(ix, yb + 1, iz, "light[level=10]")
+
+    # balcony ring with corbels and a railing
+    if balcony:
+        yb = cy + int(balcony)
+        _stair_ring(scene, footprint(r + 1, yb - 1, filled=False), cx, cz, dark.stairs, half="top")
+        deck = footprint(r + 2.6, yb, True) - footprint(r + 0.4, yb, True)
+        for (x, y, z) in deck.points().tolist():
+            if scene.get(x, y, z) == "minecraft:air" or scene.get(x, y, z) == dark_block:
+                scene.set(x, y, z, f"{dark.slab}[type=top]" if dark.slab else dark_block)
+        rail = footprint(r + 2.6, yb + 1, False)
+        for (x, y, z) in rail.points().tolist():
+            if scene.get(x, y, z) == "minecraft:air":
+                scene.set(x, y, z, dark.wall or T.railing)
+        for k, a in enumerate(rib_angles[::2] or [0.0, math.pi]):
+            x, z = at_angle(a, r + 2.2)
+            scene.set(x, yb + 2, z, T.lamp)
+
+    # machicolations under the top
+    _stair_ring(scene, footprint(r + 1, top_y - 1, filled=False), cx, cz, dark.stairs, half="top")
+
+    # entrance
+    if door in DIRS:
+        dx, dz = DIRS[door]
+        px, pz = (-dz, dx)
+        for d in range(-1, 2):
+            for t in range(-2, 3):
+                x = int(math.floor(cx + dx * (r - 0.5 + t * 0.5) + px * d))
+                z = int(math.floor(cz + dz * (r - 0.5 + t * 0.5) + pz * d))
+                for h in range(1, 4 if d else 5):
+                    scene.set(x, cy + h, z, "air")
+                scene.set(x, cy, z, dark_block)
+        fx, fz = int(math.floor(cx + dx * (r + 1.2))), int(math.floor(cz + dz * (r + 1.2)))
+        for d in (-2, 2):
+            x, z = fx + px * d, fz + pz * d
+            for h in range(1, 4):
+                scene.set(x, cy + h, z, dark_block)
+            scene.set(x, cy + 4, z, T.lamp)
+
+    # turrets corbelled out under the roof, rising above the eave
+    rmat = roof_material or T.roof
+    for t in range(max(0, int(turrets))):
+        a = (rib_angles[t * max(1, len(rib_angles) // max(1, turrets))] + math.pi / max(1, len(rib_angles))
+             if rib_angles else math.pi / 4 + 2 * math.pi * t / turrets)
+        tr = 1.7
+        tx, tz = cx + math.cos(a) * (r + 1.3), cz + math.sin(a) * (r + 1.3)
+        tb = top_y - 6
+        for k, rr in enumerate((0.8, 1.3)):
+            scene.put(shapes.circle((tx, tb - 2 + k, tz), rr, filled=True), dark_block, keep=True)
+        for y in range(tb, top_y + 4):
+            scene.put(shapes.circle((tx, y, tz), tr, filled=True), mat)
+        for y in (tb + 2, top_y + 1):
+            sx, sz = int(math.floor(tx + math.cos(a) * 1.4)), int(math.floor(tz + math.sin(a) * 1.4))
+            scene.set(sx, y, sz, T.window)
+        _stair_ring(scene, shapes.circle((tx, top_y + 3, tz), tr + 1, filled=False), tx, tz, dark.stairs, half="top")
+        cone_roof(scene, (tx, top_y + 4, tz), tr, height=(tr + 0.8) * 2.6, theme=T, material=rmat, overhang=0.8,
+                  finial=finial or T.accent)
+
+    # roof
     if roof == "battlements":
         disc = footprint(r + 1, top_y, filled=True)
         scene.put(disc, T.floor if T.floor else mat)
@@ -439,22 +562,14 @@ def tower(scene, center, radius: float, height: int, *, theme=None, shape: str =
                 scene.put((x, y + 1, z), mat)
     elif roof in ("cone", "asian"):
         scene.put(footprint(r + 1, top_y, filled=True), mat)
-        cone_roof(scene, (cx, top_y + 1, cz), r, theme=T, overhang=1.0 if roof == "cone" else 2.0)
+        cone_roof(scene, (cx, top_y + 1, cz), r, height=(r + 1) * 2.2, theme=T, material=rmat,
+                  overhang=1.0 if roof == "cone" else 2.0, finial=finial or (T.accent if turrets else None))
     elif roof in ("dome", "onion"):
         scene.put(footprint(r + 1, top_y, filled=True), mat)
-        dome_roof(scene, (cx, top_y + 1, cz), r + 0.5, theme=T, onion=roof == "onion")
+        dome_roof(scene, (cx, top_y + 1, cz), r + 0.5, theme=T, material=rmat, onion=roof == "onion")
     elif roof == "pyramid":
         rb = Box(int(cx - r - 1), top_y - 1, int(cz - r - 1), int(cx + r), top_y - 1, int(cz + r))
-        globals()["roof"](scene, rb, style="hip", theme=T, overhang=1)
-    if windows:
-        rng = np.random.default_rng(seed)
-        for y in range(cy + 4, cy + height - 3, 5):
-            for k in range(4):
-                a = k * math.pi / 2 + (y // 5) * 0.4
-                wx = int(math.floor(cx + math.cos(a) * r))
-                wz = int(math.floor(cz + math.sin(a) * r))
-                for h in range(2):
-                    scene.set(wx, y + h, wz, T.window if T.name != "fantasy_medieval" else "glass_pane")
+        globals()["roof"](scene, rb, style="hip", theme=T, material=rmat, overhang=1)
     if buttresses:
         for k in range(buttresses):
             a = 2 * math.pi * k / buttresses
@@ -465,7 +580,6 @@ def tower(scene, center, radius: float, height: int, *, theme=None, shape: str =
             scene.set(int(math.floor(bx)), cy + int(height * 0.35), int(math.floor(bz)),
                       f"{trim.stairs}[facing={_face_to(bx, bz, cx, cz)}]")
     return Mask.from_points(cells)
-
 
 def _face_to(x, z, cx, cz) -> str:
     """Horizontal direction from (x, z) towards (cx, cz)."""

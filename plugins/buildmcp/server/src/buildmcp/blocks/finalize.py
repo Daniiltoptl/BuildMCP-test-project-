@@ -99,10 +99,35 @@ def _with(name: str, props: dict, **changes) -> str:
 
 # ------------------------------------------------------------------ rules
 def _leaves(c: _Ctx) -> None:
+    """Leaves: persistent (never decay) and the distance to the nearest log the game would compute
+    (logs 0, through any leaves, capped at 7), so pastes with and without block updates agree."""
+    kind = c.kind[c.ids]
+    leaf = kind == F.LEAVES
+    if not leaf.any():
+        return
+    names = np.array([parse_state(st)[0].endswith(("_log", "_wood", "_stem", "_hyphae")) for st in c.scene.palette])
+    log = names[c.ids]
+    dist = np.full(c.ids.shape, 7, dtype=np.int8)
+    dist[log] = 0
+    for _ in range(7):
+        nb = np.full(c.ids.shape, 7, dtype=np.int8)
+        for axis in range(3):
+            for shift in (1, -1):
+                rolled = np.roll(dist, shift, axis=axis)
+                edge = [slice(None)] * 3
+                edge[axis] = 0 if shift == 1 else -1
+                rolled[tuple(edge)] = 7
+                nb = np.minimum(nb, rolled)
+        new = np.where(leaf, np.minimum(7, nb + 1), dist).astype(np.int8)
+        new[log] = 0
+        if np.array_equal(new, dist):
+            break
+        dist = new
     for p in c.positions((F.LEAVES,)):
         name, props = c.dec(c.ids[p])
-        if props.get("persistent") != "true":
-            c.set(*p, _with(name, props, persistent="true"), "leaves_persistent")
+        d = str(int(dist[p]))
+        if props.get("persistent") != "true" or props.get("distance") != d:
+            c.set(*p, _with(name, props, persistent="true", distance=d), "leaves")
 
 
 def _is_wall(c: _Ctx, idx: int) -> bool:

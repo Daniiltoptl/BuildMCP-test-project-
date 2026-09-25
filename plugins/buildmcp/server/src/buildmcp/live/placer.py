@@ -292,10 +292,12 @@ _FAIL_MARKERS = ("unknown", "incorrect", "invalid", "expected", "error", "not lo
 _BENIGN = ("no blocks were filled", "could not set the block", "nothing changed")
 
 
-def is_failure(out: str) -> bool:
+def is_failure(out: str, command: str = "") -> bool:
     t = out.lower()
     if any(b in t for b in _BENIGN):
         return False
+    if " kill @e" in f" {command}" and "no entity was found" in t:
+        return False  # nothing from an earlier paste to remove
     return any(m in t for m in _FAIL_MARKERS)
 
 
@@ -329,7 +331,7 @@ def run_plan(rcon: RconClient, plan: CommandPlan, on_progress=None, load_timeout
             for c in cmds:
                 out = rcon.command(c)
                 done += 1
-                if out and is_failure(out):
+                if out and is_failure(out, c):
                     failures += 1
                     if failures <= 30:
                         warnings.append(f"{c[:120]} -> {out[:200]}")

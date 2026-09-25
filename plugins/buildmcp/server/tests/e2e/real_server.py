@@ -297,31 +297,38 @@ def _run(args, rep: Report, version: str, srv: "Server") -> Report:
     poff = (2000, 70, 2000)
     rb, _, _ = build_bundle(raw, poff, version, world="world", backup=False)
     plan = plan_commands(rb, version, strict=False)
-    cmds = [c for name, cs in plan.phases for c in cs]
     rc = RconClient("127.0.0.1", srv.rcon_port, RCON_PASSWORD)
     rc.connect()
-    for x1, z1, x2, z2 in plan.chunks:
-        rc.command(f"forceload add {x1} {z1} {x2} {z2}")
-    time.sleep(3)
-    for c in cmds:
-        rc.command(c)
+    placed = run_plan(rc, plan)
+    rep.check("parity scene placed over RCON", placed["failures"] == 0, result=placed)
+    time.sleep(1.5)  # leaves/dripstone settle through scheduled ticks
     sd, _ = compare_region(client, raw, poff)
     kinds = expected.kind_lut()
     bb = raw.bbox()
+
+    def game(x, y, z):
+        if not (bb.x1 <= x <= bb.x2 and bb.y1 <= y <= bb.y2 and bb.z1 <= z <= bb.z2):
+            return "?"
+        return sd.palette[int(sd.data[x - bb.x1, y - bb.y1, z - bb.z1])].removeprefix("minecraft:")
+
     mism = {}
     for x in range(bb.x1, bb.x2 + 1):
         for y in range(bb.y1, bb.y2 + 1):
             for z in range(bb.z1, bb.z2 + 1):
                 idx = expected.get_id(x, y, z)
                 name = parse_state(expected.palette[idx])[0]
-                if int(kinds[idx]) not in PARITY_KINDS and name != "grass_block":
+                if int(kinds[idx]) not in PARITY_KINDS and name not in ("grass_block", "oak_leaves"):
                     continue
-                got = sd.palette[int(sd.data[x - bb.x1, y - bb.y1, z - bb.z1])]
-                if norm(got) != norm(expected.palette[idx]):
+                got = game(x, y, z)
+                if norm("minecraft:" + got) != norm(expected.palette[idx]):
+                    nbs = {d: game(x + dx, y + dy, z + dz) for d, (dx, dy, dz) in
+                           {"N": (0, 0, -1), "S": (0, 0, 1), "E": (1, 0, 0), "W": (-1, 0, 0), "U": (0, 1, 0),
+                            "D": (0, -1, 0)}.items()}
                     mism.setdefault(F.KIND_NAMES.get(int(kinds[idx]), name), []).append(
-                        {"pos": [x, y, z], "finalize": expected.palette[idx], "game": got})
+                        {"pos": [x, y, z], "finalize": expected.palette[idx].removeprefix("minecraft:"), "game": got,
+                         "game_neighbours": nbs})
     rep.check("finalize parity", not mism, counts={k: len(v) for k, v in mism.items()},
-              examples={k: v[:6] for k, v in mism.items()})
+              examples={k: v[:3] for k, v in mism.items()})
 
     # 5. RCON fallback paste (strict when the server supports it)
     conn = RconConnection(rc, version)
