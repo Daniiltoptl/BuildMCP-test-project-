@@ -18,6 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      # JDK 21 runs the BuildBridge plugin inside the fake Paper server (tests/test_bridge.py)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
       - name: Install dependencies
         run: uv sync --frozen
       - name: Run tests

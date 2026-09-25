@@ -33,8 +33,11 @@ class StructureData:
         return Box(self.min[0], self.min[1], self.min[2], self.min[0] + sx - 1, self.min[1] + sy - 1, self.min[2] + sz - 1)
 
 
-def from_scene(scene, where=None, anchor=None) -> StructureData:
-    """Collect blocks, block entities, entities and biomes of a scene region."""
+def from_scene(scene, where=None, anchor=None, data_version: int | None = None) -> StructureData:
+    """Collect blocks, block entities, entities and biomes of a scene region.
+
+    ``data_version``: target game data version for NBT formats (default: the scene's version).
+    """
     from ..geo.mask import Mask, as_mask
     from .modernize import adapt_block_entity, adapt_entity
     from .nbtutil import block_entity_id
@@ -52,6 +55,7 @@ def from_scene(scene, where=None, anchor=None) -> StructureData:
         b = m.bbox
         if b is None:
             raise ValueError("region is empty")
+    dv = int(data_version or scene.reg.data_version)
     ids = scene.ids(b)
     ids[~m.to_box(b)] = 0
     used = np.unique(ids)
@@ -68,13 +72,13 @@ def from_scene(scene, where=None, anchor=None) -> StructureData:
             if state == "minecraft:air":
                 continue
             bid = block_entity_id(state)
-            bes[(x - b.x1, y - b.y1, z - b.z1)] = (bid, adapt_block_entity(bid, _as_compound(nbt), scene.reg.data_version))
+            bes[(x - b.x1, y - b.y1, z - b.z1)] = (bid, adapt_block_entity(bid, _as_compound(nbt), dv))
     ents = []
     for e in scene.entities:
         p = [int(np.floor(c)) for c in e.pos]
         if b.contains(p):
             ents.append((e.id, (e.pos[0] - b.x1, e.pos[1] - b.y1, e.pos[2] - b.z1),
-                         adapt_entity(_as_compound(e.nbt), scene.reg.data_version)))
+                         adapt_entity(_as_compound(e.nbt), dv)))
     # biomes (per column)
     bx0, bz0 = b.x1 - int(scene.origin[0]), b.z1 - int(scene.origin[2])
     bio = scene.biomes[bx0:bx0 + b.size[0], bz0:bz0 + b.size[2]].copy() if scene.biomes.size else None
@@ -82,7 +86,7 @@ def from_scene(scene, where=None, anchor=None) -> StructureData:
         anchor = default_anchor(scene, b)
     return StructureData(
         palette=palette, data=data, min=b.min, origin=tuple(int(v) for v in anchor), block_entities=bes,
-        entities=ents, biome_palette=list(scene.biome_palette), biomes=bio, data_version=scene.reg.data_version,
+        entities=ents, biome_palette=list(scene.biome_palette), biomes=bio, data_version=dv,
     )
 
 

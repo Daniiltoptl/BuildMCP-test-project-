@@ -1,0 +1,92 @@
+name: bridge
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["bridge-v*"]
+    paths:
+      - "plugins/buildmcp/bridge/**"
+      - "plugins/buildmcp/server/src/buildmcp/live/**"
+      - "plugins/buildmcp/server/src/buildmcp/blocks/**"
+      - "plugins/buildmcp/server/tests/e2e/**"
+      - ".github/workflows/bridge.yml"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/buildmcp/bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build against the real Paper API
+        run: ./gradlew --no-daemon jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BuildBridge
+          path: plugins/buildmcp/bridge/build/libs/BuildBridge-*.jar
+          if-no-files-found: error
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        minecraft: ["1.21.1", "1.21.4", "1.21.8", "latest"]
+    defaults:
+      run:
+        working-directory: plugins/buildmcp/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: BuildBridge
+          path: bridge-jar
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Download Paper ${{ matrix.minecraft }}
+        id: paper
+        run: echo "version=$(uv run python tests/e2e/get_paper.py ${{ matrix.minecraft }} /tmp/paper.jar)" >> "$GITHUB_OUTPUT"
+      - name: Real server e2e (paste, read back, undo, finalize parity, RCON)
+        run: >
+          uv run python tests/e2e/real_server.py --paper /tmp/paper.jar
+          --bridge "$(ls ${{ github.workspace }}/bridge-jar/BuildBridge-*.jar | head -n1)"
+          --dir /tmp/srv --version ${{ steps.paper.outputs.version }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.minecraft }}
+          path: |
+            /tmp/srv/e2e-report.json
+            /tmp/srv/server.log
+            /tmp/srv/logs/
+          if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/bridge-v')
+    needs: [build, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: BuildBridge
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/BuildBridge-*.jar
+          body: BuildBridge for Paper 1.21.x — install with the bridge_install tool of BuildMCP or copy the jar into plugins/.

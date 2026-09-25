@@ -614,4 +614,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from buildmcp.mcp_server import main as _main  # run the package module so server_tools registers on it
+
+    _main()
