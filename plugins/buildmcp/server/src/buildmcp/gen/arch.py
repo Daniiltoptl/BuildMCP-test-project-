@@ -721,8 +721,10 @@ def house(scene, box, *, theme=None, style: str | None = None, roof_style: str |
     return {"box": b.as_tuple(), "roof": r.bbox.as_tuple() if r.bbox else None}
 
 
-def pagoda(scene, center, *, tiers: int = 3, base: int = 11, tier_height: int = 5, theme=None, seed: int = 0) -> Mask:
-    """Asian pagoda: stacked shrinking storeys with curved roofs and a finial."""
+def pagoda(scene, center, *, tiers: int = 3, base: int = 11, tier_height: int = 5, theme=None, seed: int = 0,
+           lanterns: bool = True) -> Mask:
+    """Asian pagoda: stacked shrinking storeys with curved roofs and a finial. ``lanterns``: a lantern
+    on a chain under each corner of every roof and light inside the storeys (lit windows at night)."""
     T = _theme(theme or "asian_sakura")
     cx, cy, cz = (int(v) for v in center)
     y = cy
@@ -747,8 +749,19 @@ def pagoda(scene, center, *, tiers: int = 3, base: int = 11, tier_height: int = 
             for idx in range(2, len(line) - 2, 3):
                 x, z = line[idx]
                 window(scene, (x, b.y1 + 1, z), name, height=2, theme=T, style="plain")
-        roof(scene, b, style="asian", theme=T, overhang=2 + (1 if t == 0 else 0), pitch=0.8)
+        overhang = 2 + (1 if t == 0 else 0)
+        roof(scene, b, style="asian", theme=T, overhang=overhang, pitch=0.8)
         cells.extend(Mask.box(b).points().tolist())
+        if lanterns:
+            scene.set(cx, b.y1 + 1, cz, "light[level=13]")
+            for sx, sz in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+                for o in range(overhang, -1, -1):  # from the eave tip inward: hang under the lowest roof block
+                    lx, lz = cx + sx * (half + o), cz + sz * (half + o)
+                    ys = [yy for yy in range(b.y2 + 1, b.y2 + 8) if scene.get(lx, yy, lz) != "minecraft:air"]
+                    if ys and all(scene.get(lx, ys[0] - k, lz) == "minecraft:air" for k in (1, 2)):
+                        scene.set(lx, ys[0] - 1, lz, "chain")
+                        scene.set(lx, ys[0] - 2, lz, "lantern[hanging=true]")
+                        break
         rb = scene.bbox()
         y = b.y2 + 1 + max(3, int(size * 0.28))
         size = max(5, size - 4)

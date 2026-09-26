@@ -112,3 +112,15 @@ def test_willow_vines_hold_on():
     vines = int(sum(1 for st in S.palette if st.startswith("minecraft:vine")))
     assert vines, "a willow has vines"
     assert finalize(S).get("vines_removed", 0) == 0
+
+
+def test_pagoda_lanterns_hang_under_the_eaves():
+    S = Scene("1.21.4")
+    S.fill((-12, 0, -12, 12, 0, 12), "grass_block")
+    arch.pagoda(S, (0, 1, 0), tiers=3, base=11)
+    hung = [tuple(p) for p in S.mask("lantern[hanging=true]").points().tolist()]
+    assert len(hung) >= 8  # at least two tiers with four corners
+    for x, y, z in hung:
+        assert S.get(x, y + 1, z).startswith("minecraft:chain")
+        assert S.get(x, y + 2, z) != "minecraft:air"  # the chain hangs from the roof
+    assert S.count("light") == 3  # the storeys are lit inside
