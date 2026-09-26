@@ -41,7 +41,8 @@ def path(scene, points, width: float = 4.0, *, theme=None, palette=None, edge=No
     cells_core = []
     cells_edge = []
     for (x, y, z) in band.points().tolist():
-        gy = scene.top_y(x, z, "!#air|!#plants|!#replaceable") if follow_ground else y
+        # the ground, not the foliage of a tree standing next to the path
+        gy = scene.top_y(x, z, "!#air|!#plants|!#replaceable|!#leaves") if follow_ground else y
         if gy is None:
             continue
         if follow_ground and abs(gy - y) > 6:

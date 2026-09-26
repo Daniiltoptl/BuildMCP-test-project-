@@ -18,6 +18,7 @@ from scipy import ndimage
 
 from ..geo import sdf
 from ..geo.mask import Mask, as_mask
+from ..blocks import families as F
 from ..paint import palette as P
 from ..paint.noise import hash01
 from .. import themes as themes_mod
@@ -80,14 +81,24 @@ def _segments_mask(segs) -> Mask:
 
 
 def _line_mask(segs) -> Mask:
-    """One-block-thick trunk along the segments: sampled every 0.2 so it never breaks (26-connected)."""
-    pts = set()
+    """One-block-thick trunk along the segments, face-connected (a lean steps sideways a whole block
+    at a time instead of touching only at the edges, which reads as a broken trunk)."""
+    path: list[tuple[int, int, int]] = []
     for a, b, _, _ in segs:
         a, b = np.asarray(a, float), np.asarray(b, float)
         n = max(1, int(np.linalg.norm(b - a) / 0.2))
         for t in np.linspace(0.0, 1.0, n + 1):
             q = a + (b - a) * t
-            pts.add((int(math.floor(q[0])), int(math.floor(q[1])), int(math.floor(q[2]))))
+            c = (int(math.floor(q[0])), int(math.floor(q[1])), int(math.floor(q[2])))
+            if not path or path[-1] != c:
+                path.append(c)
+    pts = set(path)
+    for c0, c1 in zip(path, path[1:]):
+        cur = list(c0)
+        for axis in (1, 0, 2):  # climb first, then step across
+            while cur[axis] != c1[axis]:
+                cur[axis] += 1 if c1[axis] > cur[axis] else -1
+                pts.add(tuple(cur))
     return Mask.from_points(sorted(pts))
 
 
@@ -334,38 +345,38 @@ def _pine(base, height, rng, seed) -> TreeResult:
 
 
 def _palm(base, height, rng, seed) -> TreeResult:
-    """Palm: a thin trunk leaning out at the foot and curving up, a crown of 7-9 drooping fronds."""
+    """Palm: a slim slanting trunk, a crown of 6-8 long fronds that rise and arch over into drooping
+    tips, with sparse leaflets so each frond reads as a line."""
     H = height or rng.uniform(8, 13)
     az = rng.uniform(0, 2 * math.pi)
-    lean = rng.uniform(0.3, 0.6)
+    lean = rng.uniform(0.1, 0.22)  # an even slant: the sideways steps spread along the whole trunk
     trunk, top = _grow(base, [math.cos(az) * lean, 1.0, math.sin(az) * lean], H, 0.5, 0.45, rng, step=1.0,
-                       wobble=0.03, up_bias=0.22)
+                       wobble=0.02, up_bias=0.0)
     pts: set[tuple[int, int, int]] = set()
 
     def add(p):
         pts.add((int(math.floor(p[0])), int(math.floor(p[1])), int(math.floor(p[2]))))
 
     crown = np.asarray(top, float) + np.array([0.0, 0.4, 0.0])
-    n = int(rng.integers(7, 10))
+    n = int(rng.integers(6, 9))
     for k in range(n):
-        a = 2 * math.pi * k / n + rng.uniform(-0.22, 0.22)
-        length = rng.uniform(4.2, 6.2)
-        d = _unit([math.cos(a), rng.uniform(0.35, 0.75), math.sin(a)])
+        a = 2 * math.pi * k / n + rng.uniform(-0.25, 0.25)
+        length = rng.uniform(6.2, 8.4)
+        d = _unit([math.cos(a), rng.uniform(0.45, 0.8), math.sin(a)])
         perp = np.array([-math.sin(a), 0.0, math.cos(a)])
         p = crown.copy()
-        steps = int(length / 0.45)
+        steps = int(length / 0.5)
         for i in range(steps):
             t = i / steps
-            d = _unit(d + np.array([0.0, -0.13, 0.0]))  # the frond arches and droops
-            p = p + d * 0.45
+            d = _unit(d + np.array([0.0, -0.16, 0.0]))  # rises, then arches over and droops
+            p = p + d * 0.5
             add(p)
-            if 0.18 < t < 0.78:  # leaflets widen the middle of the frond
-                w = 0.95 if 0.3 < t < 0.65 else 0.6
-                for side in (-1, 1):
-                    add(p + perp * side * w + np.array([0.0, -0.35, 0.0]))
+            if 0.25 < t < 0.85 and i % 3 == 0:  # leaflets hang from alternate sides
+                side = 1 if (i // 3) % 2 == 0 else -1
+                add(p + perp * side * 0.9 + np.array([0.0, -0.55, 0.0]))
     tx, ty, tz = (int(math.floor(c)) for c in crown)
-    for dx, dy, dz in ((0, 1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 0, 0)):
-        pts.add((tx + dx, ty + dy, tz + dz))
+    for dx, dy, dz in ((0, 1, 0), (0, 2, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 0, 0)):
+        pts.add((tx + dx, ty + dy, tz + dz))  # a knot of young fronds pointing up
     return TreeResult(_line_mask(trunk), Mask.from_points(sorted(pts)), top=tuple(top))
 
 
@@ -403,7 +414,8 @@ def _cypress(base, height, rng, seed) -> TreeResult:
         for dx in range(-ri, ri + 1):
             for dz in range(-ri, ri + 1):
                 d = math.hypot(dx, dz)
-                if d <= r and (d <= r - 0.6 or hash01(dx, cy, dz, seed) < 0.75):
+                # the core column is always there, so the top point never floats over a gap
+                if d <= r and (d <= r - 0.6 or d == 0 or hash01(dx, cy, dz, seed) < 0.75):
                     pts.append((int(math.floor(x0)) + dx, cy, int(math.floor(z0)) + dz))
     tx, ty, tz = (int(math.floor(c)) for c in (x0, y0 + H, z0))
     pts.append((tx, ty, tz))
@@ -472,7 +484,9 @@ def _droop(leaves: Mask, rng, chance: float, max_len: int, seed: int) -> Mask:
 def _fungus_extras(scene, res: TreeResult, rng, T) -> None:
     under = res.leaves.bottom().points()
     for (x, y, z) in under.tolist():
-        if rng.random() < 0.18 and scene.get(x, y - 1, z) == "minecraft:air":
+        # only under the cap itself: where something else took the cell, a vine would not hold
+        if rng.random() < 0.18 and scene.get(x, y - 1, z) == "minecraft:air" and \
+                F.sturdy_below(scene.reg, scene.get(x, y, z)):
             n = int(rng.integers(2, 8))
             for k in range(1, n + 1):
                 if scene.get(x, y - k, z) != "minecraft:air":

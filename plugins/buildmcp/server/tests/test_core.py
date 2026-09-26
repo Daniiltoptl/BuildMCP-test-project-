@@ -229,3 +229,37 @@ def test_vine_chain_falls_in_one_pass():
     S.set(3, 6, 2, "air")  # take the support away: everything below falls in one pass, like in game
     assert finalize(S)["vines_removed"] == 4
     assert finalize(S) == {}
+
+
+def test_lint_unsupported_attachments():
+    S = Scene("1.21.4")
+    S.fill((0, 0, 0, 10, 0, 10), "stone")
+    S.set(2, 1, 2, "smooth_sandstone_slab[type=bottom]")
+    S.set(2, 2, 2, "lantern")                       # on a bottom slab: drops
+    S.set(4, 1, 4, "sandstone_wall")
+    S.set(4, 2, 4, "lantern")                       # on a wall: fine
+    S.set(6, 5, 6, "oak_leaves[persistent=true]")
+    S.set(6, 4, 6, "cave_vines[berries=true]")      # under leaves: drops
+    S.set(8, 5, 8, "stone")
+    S.set(8, 4, 8, "cave_vines_plant[berries=false]")
+    S.set(8, 3, 8, "cave_vines[berries=true]")      # a chain from stone: fine
+    S.set(1, 1, 8, "poppy")                         # on stone: drops
+    S.set(3, 5, 9, "stone")
+    S.set(3, 4, 9, "lantern[hanging=true]")         # under stone: fine
+    bad = [i for i in lint(S) if i.kind == "unsupported_attachments"]
+    assert bad and bad[0].count == 3
+
+
+def test_finalize_drops_plants_off_soil():
+    S = Scene("1.21.4")
+    S.fill((0, 0, 0, 6, 0, 6), "stone")
+    S.set(1, 0, 1, "grass_block")
+    S.set(1, 1, 1, "poppy")                          # on grass: stays
+    S.set(3, 1, 3, "poppy")                          # on stone: dropped
+    S.set(5, 1, 5, "rose_bush[half=lower]")
+    S.set(5, 2, 5, "rose_bush[half=upper]")          # both halves go
+    ch = finalize(S)
+    assert S.get(1, 1, 1) == "minecraft:poppy"
+    assert S.get(3, 1, 3) == "minecraft:air"
+    assert S.get(5, 1, 5) == "minecraft:air" and S.get(5, 2, 5) == "minecraft:air"
+    assert ch.get("plant_soil") == 2

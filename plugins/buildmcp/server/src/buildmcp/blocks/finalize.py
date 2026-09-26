@@ -258,6 +258,17 @@ def _axis(d: str) -> str:
     return "z" if d in ("north", "south") else "x"
 
 
+def _plant_soil(c: _Ctx) -> None:
+    """Flowers and grass only stay on soil (dirt, grass, moss...): on stone, sand or a slab the game
+    drops them at the first block update, so take them away now (double_blocks clears the top half)."""
+    for p in c.positions((F.PLANT, F.DOUBLE_PLANT)):
+        name, props = c.dec(int(c.ids[p]))
+        if name not in F.SOIL_PLANTS or props.get("half") == "upper":
+            continue
+        if c.name(c.nb(*p, "down")) not in F.SOIL:
+            c.set(*p, "minecraft:air", "plant_soil")
+
+
 def _double_blocks(c: _Ctx) -> None:
     free = lambda i: c.kind[i] in (F.AIR, F.PLANT) or c.name(i) in ("water", "snow")  # noqa: E731
     for p in c.positions((F.DOUBLE_PLANT, F.DOOR)):
@@ -493,6 +504,7 @@ def _gravity(c: _Ctx) -> None:
 RULES: dict[str, Callable[[_Ctx], None]] = {
     "gravity": _gravity,
     "leaves": _leaves,
+    "plant_soil": _plant_soil,
     "double_blocks": _double_blocks,
     "beds": _beds,
     "mushrooms": _mushrooms,

@@ -383,7 +383,7 @@ def door(scene, pos, facing: str, *, theme=None, width: int = 1, lamps: bool = T
             lx, lz = x + rx * side + dx, z + rz * side + dz
             if scene.get(lx, y, lz) == "minecraft:air":
                 scene.set(lx, y, lz, _wall_of(scene, T.trim))
-            if scene.get(lx, y + 1, lz) == "minecraft:air":
+            if scene.get(lx, y + 1, lz) == "minecraft:air" and F.can_hold_lantern(scene, lx, y, lz):
                 scene.set(lx, y + 1, lz, T.lamp)
     if awning:
         wood = _fam(scene, T.wood_trim)
@@ -1047,8 +1047,8 @@ def temple(scene, at, facing: str = "south", *, width: int = 15, depth: int = 21
 def pergola(scene, a, b, *, width: int = 5, height: int = 5, theme=None, greenery: float = 0.45,
             lanterns: bool = True, seed: int = 0) -> Mask:
     """Covered walk between ground points ``a`` and ``b`` (same x or same z): white columns every four
-    blocks on both sides, dark timber beams and rafters on top, climbing greenery with glow berries
-    hanging from it (lit at night) and lanterns under the cross beams. ``width`` = walkway width."""
+    blocks on both sides, dark timber beams and rafters on top, greenery over them, glow berries hanging
+    from the beams (lit at night) and lanterns under the cross beams. ``width`` = walkway width."""
     T = _theme(theme or "roman_mediterranean")
     ax, ay, az = (int(v) for v in a)
     bx, by, bz = (int(v) for v in b)
@@ -1092,12 +1092,19 @@ def pergola(scene, a, b, *, width: int = 5, height: int = 5, theme=None, greener
                 p = P3(t, o, top + 2)
                 scene.put(p, leaves)
                 cells.append(p)
-                below = P3(t, o, top + 1)
-                if abs(o) >= half and scene.get(*below) == "minecraft:air" and rng.random() < 0.6:
-                    # glow berries dripping over the sides of the pergola
-                    for k in range(int(rng.integers(1, 4))):
-                        q = P3(t, o, top + 1 - k)
-                        if scene.get(*q) != "minecraft:air":
-                            break
-                        scene.set(*q, f"cave_vines[berries={'true' if k % 2 == 0 else 'false'}]")  # finalize: head/body
+    # glow berries hang from the undersides of the timber (a vine needs a sturdy block above it; leaves
+    # are not, so a vine under the greenery would drop at the first block update)
+    for t in range(-1, L + 2):
+        for o in range(-half - 1, half + 2):
+            for y0 in (top - 1, top):
+                above = scene.get(*P3(t, o, y0 + 1))
+                if "_log" not in above or scene.get(*P3(t, o, y0)) != "minecraft:air":
+                    continue
+                if hash01(t, o, seed + y0, 9) >= greenery * 0.8:
+                    continue
+                for k in range(int(rng.integers(1, 4))):
+                    q = P3(t, o, y0 - k)
+                    if scene.get(*q) != "minecraft:air":
+                        break
+                    scene.set(*q, f"cave_vines[berries={'true' if k % 2 == 0 else 'false'}]")  # finalize: head/body
     return Mask.from_points(cells)

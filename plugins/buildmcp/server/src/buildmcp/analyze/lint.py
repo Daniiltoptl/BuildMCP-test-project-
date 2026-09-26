@@ -80,6 +80,32 @@ def lint(scene, where=None, flat_area: int = 90, max_issues: int = 60) -> list[I
                                 f"{len(keep)} plants/carpets/torches/signs have nothing under them (they pop off in game).",
                                 _box_of_cells(k[:, 0], k[:, 1], k[:, 2], o), len(keep)))
 
+    # --- attachments resting on blocks that cannot hold them: they pop off at the first block update
+    # (a lantern on a bottom slab, glow berries under leaves, flowers on stone)
+    pal = [st.removeprefix("minecraft:") for st in scene.palette]
+    names = [st.split("[", 1)[0] for st in pal]
+    on_top = np.array([F.holds_on_top(scene.reg, st) for st in scene.palette])
+    under = np.array([F.holds_below(scene.reg, st) for st in scene.palette])
+    sturdy = np.array([F.sturdy_below(scene.reg, st) for st in scene.palette])
+    lantern = np.array([n in ("lantern", "soul_lantern") for n in names])
+    hanging = np.array(["hanging=true" in st for st in pal])
+    # 1 cave vines, 2 weeping vines: each hangs from a sturdy face or from a vine of its own kind
+    vine = np.array([1 if n.startswith("cave_vines") else 2 if n.startswith("weeping_vines") else 0 for n in names])
+    soil_plant = np.array([n in F.SOIL_PLANTS and "half=upper" not in st for n, st in zip(names, pal)])
+    soil = np.array([n in F.SOIL for n in names])
+    above_id = np.zeros_like(ids)
+    above_id[:, :-1, :] = ids[:, 1:, :]
+    bad = (lantern[ids] & ~hanging[ids] & ~on_top[below_id]) | (lantern[ids] & hanging[ids] & ~under[above_id])
+    bad |= (vine[ids] > 0) & ~sturdy[above_id] & (vine[above_id] != vine[ids])
+    bad |= soil_plant[ids] & ~soil[below_id] & ~below_air  # plants over air are reported above
+    bad[:, [0, -1], :] = False
+    if bad.any():
+        xs, ys, zs = np.nonzero(bad)
+        issues.append(Issue("warning", "unsupported_attachments",
+                            f"{len(xs)} lanterns/vines/flowers rest on blocks that cannot hold them (a lantern on a "
+                            "bottom slab, glow berries under leaves, flowers on stone): they drop at the first block "
+                            "update.", _box_of_cells(xs, ys, zs, o), len(xs)))
+
     # --- gravity blocks over air
     # (pointed dripstone hangs from the block above, so it is not a falling block here)
     grav_ids = [i for i, s in enumerate(scene.palette)

@@ -307,8 +307,9 @@ def portal_frame(scene, at, facing: str = "south", *, width: int = 5, height: in
         for n in (-2, 2):
             if dark.stairs:
                 scene.set(*P(u, top, n), f"{dark.stairs}[facing={OPP[outward(n)]},half=top]")
-    # lanterns on the ends of the cornice and banners on the piers
+    # lanterns on the ends of the cornice (on a full block: a lantern on a slab drops) and banners
     for u in (-half - 2, half + 2):
+        scene.put(P(u, top + 1, 0), dark.base)
         scene.set(*P(u, top + 2, 0), T.lamp)
         for n in (-1, 1):
             bp = P(u, spring - 2, n * 2)

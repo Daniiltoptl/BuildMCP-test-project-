@@ -302,3 +302,48 @@ def family(reg: BlockRegistry, block: str) -> Family:
 
 def families(reg: BlockRegistry) -> dict[str, Family]:
     return dict(_family_index(reg.version))
+
+
+# ------------------------------------------------------------------ what holds what
+# flowers and grass that only grow on soil (BlockTags.DIRT); other plants have their own rules
+SOIL_PLANTS = {
+    "short_grass", "tall_grass", "fern", "large_fern", "dandelion", "poppy", "blue_orchid", "allium", "azure_bluet",
+    "red_tulip", "orange_tulip", "white_tulip", "pink_tulip", "oxeye_daisy", "cornflower", "lily_of_the_valley",
+    "sunflower", "lilac", "rose_bush", "peony", "pink_petals", "oak_sapling", "spruce_sapling", "birch_sapling",
+    "jungle_sapling", "acacia_sapling", "dark_oak_sapling", "cherry_sapling",
+}
+SOIL = {"grass_block", "dirt", "coarse_dirt", "rooted_dirt", "podzol", "mycelium", "moss_block", "pale_moss_block",
+        "mud", "muddy_mangrove_roots", "farmland"}
+
+
+def _supports(reg, state: str, face: str, cover) -> bool:
+    """Does the support shape of ``state`` cover ``cover`` on ``face``? The game takes the collision
+    shape, except for leaves: they have none, so nothing stands on or hangs from them."""
+    if state in ("minecraft:air", "air"):
+        return False
+    if state.removeprefix("minecraft:").split("[", 1)[0].endswith("_leaves"):
+        return False
+    try:
+        return reg.face_covers(state, face, cover)
+    except (KeyError, ValueError):
+        return True  # unknown block: do not judge
+
+
+def holds_on_top(reg, state: str) -> bool:
+    """Can a lantern stand on this block (the centre of its top face is solid)?"""
+    return _supports(reg, state, "up", (7, 7, 9, 9))
+
+
+def holds_below(reg, state: str) -> bool:
+    """Can a lantern hang under this block (the centre of its bottom face is solid)?"""
+    return _supports(reg, state, "down", (7, 7, 9, 9))
+
+
+def sturdy_below(reg, state: str) -> bool:
+    """Is the whole bottom face solid (what cave and weeping vines need above them)?"""
+    return _supports(reg, state, "down", (0, 0, 16, 16))
+
+
+def can_hold_lantern(scene, x: int, y: int, z: int) -> bool:
+    """Can a lantern stand on the block at (x, y, z)?"""
+    return holds_on_top(scene.reg, scene.get(x, y, z))
