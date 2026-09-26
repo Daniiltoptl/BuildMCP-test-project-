@@ -124,3 +124,14 @@ def test_pagoda_lanterns_hang_under_the_eaves():
         assert S.get(x, y + 1, z).startswith("minecraft:chain")
         assert S.get(x, y + 2, z) != "minecraft:air"  # the chain hangs from the roof
     assert S.count("light") == 3  # the storeys are lit inside
+
+
+def test_spikes_have_no_loose_bits():
+    from scipy import ndimage
+
+    for seed in range(8):
+        S = Scene("1.21.4")
+        S.fill((-8, 0, -8, 8, 0, 8), "stone")
+        m = rocks.spike(S, (0, 0, 0), height=13, radius=1.9, lean=(-0.12, 0.05), seed=40 + seed)
+        _, n = ndimage.label(m.arr, structure=np.ones((3, 3, 3), bool))
+        assert n == 1, seed

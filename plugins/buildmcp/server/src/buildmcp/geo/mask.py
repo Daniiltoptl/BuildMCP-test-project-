@@ -212,6 +212,17 @@ class Mask:
     def fill_holes(self) -> "Mask":
         return Mask(self.origin, ndimage.binary_fill_holes(self.arr))
 
+    def largest_part(self) -> "Mask":
+        """Only the biggest connected piece (26-neighbourhood): drops the loose specks a noisy shape
+        (displaced SDF, thin tips) leaves floating around it."""
+        if not self:
+            return self.copy()
+        lab, n = ndimage.label(self.arr, structure=np.ones((3, 3, 3), bool))
+        if n <= 1:
+            return self.copy()
+        biggest = int(np.argmax(np.bincount(lab.ravel())[1:])) + 1
+        return Mask(self.origin, lab == biggest)
+
     def shell(self, thickness: int = 1) -> "Mask":
         """Outer layer of the solid (cells within ``thickness`` of the outside, 6-connected)."""
         return self - self.erode(thickness)

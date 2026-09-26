@@ -64,7 +64,7 @@ def spike(scene, at, height: float = 12.0, radius: float = 2.5, *, lean: tuple[f
     shape = sdf.capsule((x, y, z), tip, radius, 0.35).displace(radius * 0.3, scale=max(2.0, radius), seed=seed)
     if twist:
         shape = shape.twist(twist, (x, y, z))
-    m = shape.mask()
+    m = shape.mask().largest_part()  # the noise can cut loose bits off the thin tip
     pal = palette or (P.Gradient([T.rock_deep, T.rock], axis="y", start=y, end=tip[1], jitter=1.0, seed=seed))
     scene.put(m, pal, only="#replaceable")
     return m

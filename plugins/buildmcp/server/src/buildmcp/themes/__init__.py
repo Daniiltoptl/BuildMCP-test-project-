@@ -188,8 +188,8 @@ register(Theme(
 # ---------------------------------------------------------------- dark / infernal
 register(Theme(
     name="dark_infernal", title="Тёмный / адский", biome="crimson_forest",
-    grass=patches({"crimson_nylium": 3, "netherrack": 1.5, "blackstone": 2, "soul_soil": 1.2, "warped_nylium": 0.35},
-                  size=6),
+    grass=patches({"crimson_nylium": 4, "netherrack": 1.5, "blackstone": 1.5, "soul_soil": 0.8, "warped_nylium": 0.12},
+                  size=5),  # teal only as a rare accent: big teal/brown patches read as camouflage
     soil=patches({"netherrack": 4, "soul_soil": 2, "blackstone": 1}, size=3),
     rock=patches({"blackstone": 4, "basalt": 2, "deepslate": 2, "tuff": 1, "gilded_blackstone": 0.1}, size=3),
     rock_deep=patches({"deepslate": 3, "blackstone": 2, "basalt": 1, "magma_block": 0.2}, size=4),
