@@ -135,3 +135,20 @@ def test_spikes_have_no_loose_bits():
         m = rocks.spike(S, (0, 0, 0), height=13, radius=1.9, lean=(-0.12, 0.05), seed=40 + seed)
         _, n = ndimage.label(m.arr, structure=np.ones((3, 3, 3), bool))
         assert n == 1, seed
+
+
+def test_no_tree_wood_hangs_in_the_air():
+    from scipy import ndimage
+
+    for kind in trees.KINDS:
+        for seed in range(4):
+            S = Scene("1.21.4")
+            res = trees.tree(S, (0, 0, 0), kind=kind, seed=seed, place=False)
+            if not res.wood:
+                continue
+            lab, n = ndimage.label(res.wood.arr, structure=np.ones((3, 3, 3), bool))
+            sizes = np.bincount(lab.ravel())
+            sizes[0] = 0
+            near = res.leaves.dilate(1).to_box(res.wood.extent) if res.leaves else np.zeros_like(res.wood.arr)
+            for k in range(1, n + 1):  # every piece but the trunk is hidden in the canopy
+                assert k == int(np.argmax(sizes)) or (near & (lab == k)).any(), (kind, seed)

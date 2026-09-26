@@ -65,14 +65,16 @@ def lamp_post(scene, at, *, theme=None, height: int = 4, style: str | None = Non
             scene.set(x + dx, y + 4, z + dz, f"stone_brick_stairs[facing={OPP[d]}]")
         scene.set(x, y + 5, z, "stone_brick_wall")
     elif style == "brazier":
-        scene.set(x, y, z, "polished_blackstone_wall")
-        scene.set(x, y + 1, z, "polished_blackstone_wall")
+        # a stone bowl on a short pillar in the theme's trim (blackstone in the dark theme)
+        stone = trim if (trim.wall and trim.stairs and trim.slab) else _fam(scene, "stone_bricks")
+        scene.set(x, y, z, stone.wall)
+        scene.set(x, y + 1, z, stone.wall)
         scene.set(x, y + 2, z, "soul_campfire[lit=true]" if T.name == "dark_infernal" else "campfire[lit=true]")
         for d, (dx, dz) in DIRS.items():
-            scene.set(x + dx, y + 2, z + dz, f"polished_blackstone_stairs[facing={OPP[d]},half=top]")
+            scene.set(x + dx, y + 2, z + dz, f"{stone.stairs}[facing={OPP[d]},half=top]")
         for dx in (-1, 1):  # corners close the bowl (without them it reads as a cross from afar)
             for dz in (-1, 1):
-                scene.set(x + dx, y + 2, z + dz, "polished_blackstone_slab[type=top]")
+                scene.set(x + dx, y + 2, z + dz, f"{stone.slab}[type=top]")
     else:
         raise ValueError(f"unknown lamp style '{style}'")
 

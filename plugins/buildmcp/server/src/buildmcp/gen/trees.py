@@ -14,6 +14,7 @@ import zlib
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy import ndimage
 
 from ..geo import sdf
 from ..geo.mask import Mask, as_mask
@@ -98,6 +99,7 @@ def tree(scene, at, kind: str = "oak", *, height: float | None = None, theme=Non
         "pine": _pine, "dead": _dead, "fungus_giant": _fungus, "bush": _bush,
     }[kind]
     res: TreeResult = fn(base, height, rng, seed)
+    res.wood = _drop_loose_wood(res.wood, res.leaves)
     if place:
         wood_block = wood or _default_wood(kind, T)
         leaf_block = leaves or _default_leaves(kind, T)
@@ -393,6 +395,23 @@ def _petals(scene, res: TreeResult, rng) -> None:
             if scene.get(x, y + 1, z) == "minecraft:air" and ("grass_block" in g or "moss_block" in g or "dirt" in g):
                 facing = ["north", "east", "south", "west"][int(rng.integers(0, 4))]
                 scene.set(x, y + 1, z, f"pink_petals[flower_amount={int(rng.integers(1, 5))},facing={facing}]")
+
+
+def _drop_loose_wood(wood: Mask, leaves: Mask) -> Mask:
+    """Thin twigs can rasterize into loose bits. Keep the trunk and the bits hidden in the canopy
+    (they touch leaves and give them their distance to a log); drop the ones hanging in the air."""
+    if not wood:
+        return wood
+    lab, n = ndimage.label(wood.arr, structure=np.ones((3, 3, 3), bool))
+    if n <= 1:
+        return wood
+    sizes = np.bincount(lab.ravel())
+    sizes[0] = 0
+    keep = [int(np.argmax(sizes))]
+    if leaves:
+        near = leaves.dilate(1).to_box(wood.extent)
+        keep += [int(k) for k in np.unique(lab[near & (lab > 0)])]
+    return Mask(wood.origin, np.isin(lab, keep))
 
 
 def _snow_caps(scene, res: TreeResult) -> None:
