@@ -23,6 +23,7 @@
 | | Стиль | Что внутри |
 |---|---|---|
 | [![](examples/fantasy_hub/overview.jpg)](examples/fantasy_hub) | [**Фэнтези-хаб**](examples/fantasy_hub) | Летающий остров, маг-башня с горящими окнами, мраморный фонтан, логотип, 4 портала режимов, пруд и водопад |
+| [![](examples/antique_hub/overview.jpg)](examples/antique_hub) | [**Античный хаб под 1 NPC**](examples/antique_hub) | Римский храм с NPC в портике, мозаичный форум с фонтаном, руина Колизея с рынком и красным веларием, пергола, медный купол, пальмы и кипарисы, водопад |
 | [![](examples/asian_sakura/overview.jpg)](examples/asian_sakura) | [**Азия / сакура**](examples/asian_sakura) | Пагода в рамке больших тории, сакуры, пруд с кувшинками, бамбук, каменные фонари, 2 портала |
 | [![](examples/dark_infernal/overview.jpg)](examples/dark_infernal) | [**Тёмный / адский**](examples/dark_infernal) | Цитадель с башенками, парадная дорога, багровые грибы, лавовый пруд и лавопад, базальтовые шипы, 2 портала |
 | [![](examples/winter_north/overview.jpg)](examples/winter_north) | [**Зима / север**](examples/winter_north) | Длинный дом и дозорная башня, заснеженная дорога, замёрзший пруд, ели в снегу, 2 портала |
