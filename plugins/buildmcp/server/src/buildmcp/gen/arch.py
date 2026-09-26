@@ -397,6 +397,10 @@ def door(scene, pos, facing: str, *, theme=None, width: int = 1, lamps: bool = T
 
 
 # ======================================================================= towers
+# what shines behind lit windows: glowstone reads as lamplight in daylight too; shroomlight is fire
+_WINDOW_GLOW = {"asian_sakura": "ochre_froglight", "winter_north": "ochre_froglight", "dark_infernal": "shroomlight"}
+
+
 def tower(scene, center, radius: float, height: int, *, theme=None, shape: str = "round", roof: str = "cone",
           windows: bool = True, band_every: int = 6, buttresses: int = 0, material=None, seed: int = 0,
           roof_material: str | None = None, trim_material: str | None = None, ribs: int | None = None,
@@ -406,10 +410,12 @@ def tower(scene, center, radius: float, height: int, *, theme=None, shape: str =
     roof: cone | dome | onion | battlements | pyramid | asian | none.
 
     Hero details: battered plinth, weathered base fading into ``material``, vertical ``ribs`` (pilasters,
-    default by size; corners on square/octagon), dark trim bands every ``band_every``, framed windows lit
-    from inside (``lit``), a ``balcony`` ring (height above the ground), ``turrets`` corbelled out under
-    the roof, ``roof_material`` (e.g. "dark_prismarine") with a ``finial`` on the spire (default gold for
-    towers with turrets), ``door`` = side of an arched entrance (north|south|east|west).
+    default by size; corners on square/octagon), dark trim bands every ``band_every``, framed windows cut
+    through the wall (``lit``: every other one has a glowing block behind the glass, the others open into
+    the dark inside, so windows have depth by day and shine at night), a ``balcony`` ring (height above
+    the ground), ``turrets`` corbelled out under the roof, ``roof_material`` (e.g. "dark_prismarine") with
+    a ``finial`` on the spire (default gold for towers with turrets), ``door`` = side of an arched
+    entrance (north|south|east|west).
     ``trim_material`` = family for ribs/bands/frames (default: the theme's dark trim).
     """
     T = _theme(theme)
@@ -492,8 +498,18 @@ def tower(scene, center, radius: float, height: int, *, theme=None, shape: str =
                     scene.set(ox, yb - 1, oz, f"{dark.slab}[type=top]")
                 if dark.stairs and scene.get(ox, yb + win_h, oz) == "minecraft:air":
                     scene.set(ox, yb + win_h, oz, f"{dark.stairs}[facing={OPP.get(facing_out, facing_out)},half=top]")
-                if lit and (k + j) % 2 == 0 and scene.get(ix, yb + 1, iz) == "minecraft:air":
-                    scene.set(ix, yb + 1, iz, "light[level=10]")
+                # the opening goes through the whole wall: behind the glass either a glowing block (a lit
+                # room from outside, visible at night) or the dark inside of the tower (depth by day)
+                for d in (1.45, 1.95, 2.45):
+                    gx, gz = at_angle(a, r - d)
+                    if (gx, gz) != (wx, wz):
+                        break
+                glow = lit and (k + j) % 2 == 0
+                for h in range(win_h):
+                    if glow:
+                        scene.set(gx, yb + h, gz, _WINDOW_GLOW.get(T.name, "glowstone"))
+                    elif scene.get(gx, yb + h, gz) != "minecraft:air":
+                        scene.set(gx, yb + h, gz, "air")
 
     # balcony ring with corbels and a railing
     if balcony:

@@ -84,3 +84,22 @@ def test_paths_props_text_entities():
     finalize(S)
     assert len(S.entities) >= 3
     assert S.nbt(12, 1, 10) is not None
+
+
+def test_generators_are_the_same_in_every_process():
+    # Python randomizes str hashes per process: seeds must not depend on hash()
+    import subprocess
+    import sys
+
+    code = ("import hashlib; from buildmcp.scene import Scene; from buildmcp.gen import trees, terrain, arch\n"
+            "S = Scene('1.21.4'); terrain.island(S, (0, 40, 0), 12, seed=3)\n"
+            "for i, k in enumerate(trees.KINDS): trees.tree(S, (i * 14 - 40, 41, 30), kind=k, seed=5)\n"
+            "arch.tower(S, (0, 41, -30), 4, 16, turrets=2, seed=2)\n"
+            "print(hashlib.sha256(S.to_bytes()).hexdigest())")
+    outs = set()
+    for hs in ("1", "2"):
+        env = dict(__import__("os").environ, PYTHONHASHSEED=hs)
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)
+        assert r.returncode == 0, r.stderr[-2000:]
+        outs.add(r.stdout.strip().splitlines()[-1])
+    assert len(outs) == 1

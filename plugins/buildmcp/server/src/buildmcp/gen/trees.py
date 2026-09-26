@@ -10,6 +10,7 @@ Kinds: oak_giant, oak, birch, willow, cherry, pine, dead, fungus_giant, bush.
 from __future__ import annotations
 
 import math
+import zlib
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -88,7 +89,9 @@ def tree(scene, at, kind: str = "oak", *, height: float | None = None, theme=Non
     T = _theme(theme)
     if kind not in KINDS:
         raise ValueError(f"unknown tree kind '{kind}'. Kinds: {', '.join(KINDS)}")
-    rng = np.random.default_rng(seed * 7919 + hash(kind) % 10007)
+    # zlib.crc32, not hash(): str hashes change from one Python process to the next, and a build
+    # must come out the same in every session (the rendered and the exported build are one)
+    rng = np.random.default_rng(seed * 7919 + zlib.crc32(kind.encode()) % 10007)
     base = np.array([at[0] + 0.5, at[1] + 1.0, at[2] + 0.5])
     fn = {
         "oak_giant": _oak_giant, "oak": _oak, "birch": _birch, "willow": _willow, "cherry": _cherry,
