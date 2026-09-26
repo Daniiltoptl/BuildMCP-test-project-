@@ -103,3 +103,12 @@ def test_generators_are_the_same_in_every_process():
         assert r.returncode == 0, r.stderr[-2000:]
         outs.add(r.stdout.strip().splitlines()[-1])
     assert len(outs) == 1
+
+
+def test_willow_vines_hold_on():
+    S = Scene("1.21.4")
+    S.fill((-12, 0, -12, 12, 0, 12), "grass_block")
+    trees.tree(S, (0, 0, 0), kind="willow", seed=4)
+    vines = int(sum(1 for st in S.palette if st.startswith("minecraft:vine")))
+    assert vines, "a willow has vines"
+    assert finalize(S).get("vines_removed", 0) == 0

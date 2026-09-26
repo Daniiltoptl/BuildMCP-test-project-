@@ -216,3 +216,16 @@ def test_lint_stray_blocks_ignores_lily_pads_and_lights():
     S.set(10, 8, 2, "stone")  # a real leftover
     strays = [i for i in lint(S) if i.kind == "stray_blocks"]
     assert strays and strays[0].count == 1
+
+
+def test_vine_chain_falls_in_one_pass():
+    S = Scene("1.21.4")
+    S.fill((0, 0, 0, 6, 0, 6), "stone")
+    S.set(3, 6, 2, "stone")
+    S.set(3, 6, 3, "vine[north=true]")  # clings to the stone north of it
+    for y in (3, 4, 5):  # air to the north: these hold on to the vine above through the same face
+        S.set(3, y, 3, "vine[north=true]")
+    assert finalize(S).get("vines_removed", 0) == 0  # the whole chain holds on through the top vine
+    S.set(3, 6, 2, "air")  # take the support away: everything below falls in one pass, like in game
+    assert finalize(S)["vines_removed"] == 4
+    assert finalize(S) == {}

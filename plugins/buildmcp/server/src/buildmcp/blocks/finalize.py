@@ -442,7 +442,9 @@ def _hanging_plants(c: _Ctx) -> None:
 
 
 def _vines(c: _Ctx) -> None:
-    for p in c.positions((F.VINE,)):
+    pos = c.positions((F.VINE,))
+    pos.sort(key=lambda p: -p[1])  # top-down: a vine can hang on the one above, so a fall runs down the chain
+    for p in pos:
         me = int(c.ids[p])
         name, props = c.dec(me)
         faces = [d for d in DIRS if props.get(d) == "true"]

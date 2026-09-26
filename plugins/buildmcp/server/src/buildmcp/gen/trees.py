@@ -401,14 +401,23 @@ def _snow_caps(scene, res: TreeResult) -> None:
             scene.set(x, y + 1, z, "snow[layers=2]")
 
 
+_SIDES = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+
+
 def _vines(scene, res: TreeResult, rng, chance: float) -> None:
+    """Vines clinging to the side of the lower canopy and hanging down from there. Every vine below
+    keeps the same face: the game lets a vine hold on to the one above it only through that face
+    (a chain under a vine[up=true] would drop off on the first block update)."""
     for (x, y, z) in res.leaves.bottom().points().tolist():
-        if rng.random() < chance and scene.get(x, y - 1, z) == "minecraft:air":
-            n = int(rng.integers(1, 5))
-            for k in range(1, n + 1):
-                if scene.get(x, y - k, z) != "minecraft:air":
-                    break
-                scene.set(x, y - k, z, "vine[up=true]" if k == 1 else "vine[north=true]")
+        if rng.random() >= chance:
+            continue
+        face = list(_SIDES)[int(rng.integers(0, 4))]
+        dx, dz = _SIDES[face]
+        vx, vz = x - dx, z - dz  # the leaf is on the ``face`` side of the vine
+        for k in range(int(rng.integers(2, 6))):
+            if scene.get(vx, y - k, vz) != "minecraft:air":
+                break
+            scene.set(vx, y - k, vz, f"vine[{face}=true]")
 
 
 def forest(scene, surface, kinds=None, *, count: int | None = None, density: float = 0.004, min_dist: float = 8,
