@@ -113,7 +113,9 @@ def get(name: str) -> Theme:
     key = name.lower().replace("-", "_").replace(" ", "_")
     aliases = {"fantasy": "fantasy_medieval", "medieval": "fantasy_medieval", "asian": "asian_sakura",
                "sakura": "asian_sakura", "japan": "asian_sakura", "dark": "dark_infernal", "hell": "dark_infernal",
-               "nether": "dark_infernal", "winter": "winter_north", "north": "winter_north", "snow": "winter_north"}
+               "nether": "dark_infernal", "winter": "winter_north", "north": "winter_north", "snow": "winter_north",
+               "roman": "roman_mediterranean", "antique": "roman_mediterranean", "greek": "roman_mediterranean",
+               "mediterranean": "roman_mediterranean"}
     key = aliases.get(key, key)
     if key not in THEMES:
         raise KeyError(f"Unknown theme '{name}'. Themes: {', '.join(THEMES)}")
@@ -250,6 +252,45 @@ register(Theme(
     trim_dark="deepslate_bricks",
     tree_kinds=["pine", "pine", "birch"], roof_style="nordic", lamp_style="post",
     notes="Снег слоями, ели со снежными шапками, скандинавские дома из ели с крутыми крышами, лёд, тёплый свет в окнах.",
+))
+
+
+# ---------------------------------------------------------------- roman / mediterranean
+register(Theme(
+    name="roman_mediterranean", title="Античность / Средиземноморье", biome="plains",
+    grass=patches({"grass_block": 10, "moss_block": 0.8, "coarse_dirt": 1.2, "rooted_dirt": 0.5}, size=6),
+    soil=patches({"dirt": 4, "coarse_dirt": 2, "terracotta": 1}, size=3),
+    # warm cliffs: sandstone and terracotta bands (white, orange, brown) like a Mediterranean coast
+    rock=patches({"sandstone": 3, "terracotta": 2.5, "smooth_sandstone": 1.5, "white_terracotta": 1,
+                  "orange_terracotta": 0.8, "granite": 0.6}, size=4),
+    rock_deep=patches({"terracotta": 3, "brown_terracotta": 1.5, "granite": 1.5, "red_sandstone": 1, "stone": 0.5},
+                      size=4),
+    underside=patches({"terracotta": 2.5, "granite": 2, "brown_terracotta": 1.2, "red_sandstone": 1,
+                       "dripstone_block": 0.8}, size=4),
+    sand=patches({"sand": 6, "sandstone": 1, "gravel": 0.3}, size=3),
+    path=patches({"smooth_sandstone": 4, "sandstone": 2, "cut_sandstone": 1.5, "sand": 0.6}, size=2),
+    plaza=patches({"smooth_sandstone": 6, "cut_sandstone": 2, "sandstone": 1.5, "chiseled_sandstone": 0.3}, size=3),
+    wall=patches({"smooth_sandstone": 6, "sandstone": 1.5, "cut_sandstone": 1.2}, size=2),
+    wall_base=patches({"sandstone": 3, "cut_sandstone": 1.5, "smooth_sandstone": 1, "granite": 0.4}, size=2),
+    plaster=patches({"calcite": 3, "white_terracotta": 2, "smooth_quartz": 1}, size=2),
+    frame="stripped_dark_oak_log", pillar=patches({"quartz_pillar[axis=y]": 1}), floor="smooth_sandstone",
+    window="glass_pane", glass="glass", fence="dark_oak_fence", railing="sandstone_wall", door="dark_oak_door",
+    trapdoor="warped_trapdoor", trunk="jungle_wood", trunk_log="jungle_log",
+    leaves=patches({"azalea_leaves": 3, "oak_leaves": 3, "flowering_azalea_leaves": 0.5, "jungle_leaves": 0.8},
+                   size=3),
+    bush=patches({"azalea_leaves": 3, "oak_leaves": 1.5, "flowering_azalea_leaves": 1.2}, size=2),
+    flowers=["allium", "poppy", "oxeye_daisy", "cornflower", "pink_tulip", "azure_bluet"],
+    tall_flowers=["rose_bush", "lilac", "peony", "tall_grass"],
+    ground_cover={"short_grass": 10, "tall_grass": 1.5, "fern": 0.8, "allium": 0.8, "poppy": 0.6,
+                  "oxeye_daisy": 0.6, "cornflower": 0.5, "rose_bush": 0.3, "lilac": 0.3},
+    lamp="lantern", lamp_hanging="lantern[hanging=true]", light_hidden="glowstone",
+    crystal=patches({"amethyst_block": 2, "orange_stained_glass": 1}, size=2),
+    metal="chain", water="water", liquid="water", accent=mix({"gold_block": 1, "raw_gold_block": 0.4}),
+    trim="smooth_sandstone", wood_trim="dark_oak_planks", roof="granite", roof_accent="bricks",
+    trim_dark="sandstone",
+    tree_kinds=["palm", "cypress", "palm", "oak"], roof_style="gable", lamp_style="brazier",
+    notes="Песчаник и белый кварц, храмы с колоннами и фронтонами, черепичные крыши (гранит + кирпич), "
+          "пальмы и кипарисы, красные паруса-навесы, мозаика, амфоры (decorated_pot), фонтаны, дым жаровен.",
 ))
 
 

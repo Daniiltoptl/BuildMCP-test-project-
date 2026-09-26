@@ -152,3 +152,23 @@ def test_no_tree_wood_hangs_in_the_air():
             near = res.leaves.dilate(1).to_box(res.wood.extent) if res.leaves else np.zeros_like(res.wood.arr)
             for k in range(1, n + 1):  # every piece but the trunk is hidden in the canopy
                 assert k == int(np.argmax(sizes)) or (near & (lab == k)).any(), (kind, seed)
+
+
+@pytest.mark.parametrize("facing,out", [("south", (0, 1)), ("west", (-1, 0)), ("north", (0, -1)), ("east", (1, 0))])
+def test_temple_faces_its_front(facing, out):
+    S = Scene("1.21.4")
+    S.fill((-30, 0, -30, 30, 0, 30), "grass_block")
+    r = arch.temple(S, (0, 0, 0), facing=facing, theme="roman_mediterranean")
+    # the lowest step at the anchor climbs into the building (away from the front)
+    assert S.get(0, 1, 0).startswith("minecraft:smooth_sandstone_stairs[facing=" +
+                                     {(0, 1): "north", (-1, 0): "east", (0, -1): "south", (1, 0): "west"}[out])
+    b = r["box"]
+    assert (b.x1 + b.x2) / 2 * out[0] <= 0 and (b.z1 + b.z2) / 2 * out[1] <= 0  # it extends away from the front
+    nx, ny, nz = r["npc"]
+    assert S.get(int(nx // 1), int(ny), int(nz // 1)) == "minecraft:air"  # room to stand
+    assert S.get(int(nx // 1), int(ny) - 1, int(nz // 1)) != "minecraft:air"  # on the portico floor
+    (ax, ay, az), (bx, by, bz) = r["pedestals"]
+    assert ay == by and abs(ax + bx) + abs(az + bz) == 0 or (ax == bx or az == bz)  # symmetric about the axis
+    for x, y, z in r["pedestals"]:
+        assert S.get(x, y, z) == "minecraft:air" and S.get(x, y - 1, z) != "minecraft:air"
+    assert S.count("quartz_pillar") > 30 and S.count("decorated_pot") == 2

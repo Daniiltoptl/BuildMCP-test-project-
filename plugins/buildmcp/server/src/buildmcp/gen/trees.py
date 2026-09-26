@@ -22,7 +22,8 @@ from ..paint import palette as P
 from ..paint.noise import hash01
 from .. import themes as themes_mod
 
-KINDS = ("oak_giant", "oak", "birch", "willow", "cherry", "pine", "dead", "fungus_giant", "bush")
+KINDS = ("oak_giant", "oak", "birch", "willow", "cherry", "pine", "dead", "fungus_giant", "bush", "palm",
+         "cypress")
 
 
 @dataclass
@@ -78,6 +79,18 @@ def _segments_mask(segs) -> Mask:
     return m
 
 
+def _line_mask(segs) -> Mask:
+    """One-block-thick trunk along the segments: sampled every 0.2 so it never breaks (26-connected)."""
+    pts = set()
+    for a, b, _, _ in segs:
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        n = max(1, int(np.linalg.norm(b - a) / 0.2))
+        for t in np.linspace(0.0, 1.0, n + 1):
+            q = a + (b - a) * t
+            pts.add((int(math.floor(q[0])), int(math.floor(q[1])), int(math.floor(q[2]))))
+    return Mask.from_points(sorted(pts))
+
+
 def _cluster(center, radius, flat, rng, seed):
     r = radius * rng.uniform(0.85, 1.15)
     e = sdf.ellipsoid(center, (r * rng.uniform(0.9, 1.1), r * flat, r * rng.uniform(0.9, 1.1)))
@@ -96,7 +109,7 @@ def tree(scene, at, kind: str = "oak", *, height: float | None = None, theme=Non
     base = np.array([at[0] + 0.5, at[1] + 1.0, at[2] + 0.5])
     fn = {
         "oak_giant": _oak_giant, "oak": _oak, "birch": _birch, "willow": _willow, "cherry": _cherry,
-        "pine": _pine, "dead": _dead, "fungus_giant": _fungus, "bush": _bush,
+        "pine": _pine, "dead": _dead, "fungus_giant": _fungus, "bush": _bush, "palm": _palm, "cypress": _cypress,
     }[kind]
     res: TreeResult = fn(base, height, rng, seed)
     res.wood = _drop_loose_wood(res.wood, res.leaves)
@@ -117,6 +130,8 @@ def tree(scene, at, kind: str = "oak", *, height: float | None = None, theme=Non
             _snow_caps(scene, res)
         if kind == "willow":
             _vines(scene, res, rng, 0.25)
+        if kind == "palm":
+            _coconuts(scene, res, rng)
     return res
 
 
@@ -133,6 +148,10 @@ def _default_wood(kind, T):
         return "crimson_hyphae" if T.name != "winter_north" else "warped_hyphae"
     if kind == "willow":
         return "dark_oak_wood"
+    if kind == "palm":
+        return "jungle_wood"  # cocoa (coconuts) only holds on to jungle wood
+    if kind == "cypress":
+        return "spruce_wood"
     return T.trunk if T.trunk.endswith(("_wood", "_hyphae")) else "oak_wood"
 
 
@@ -147,6 +166,10 @@ def _default_leaves(kind, T):
         return P.patches({"nether_wart_block": 8, "shroomlight": 0.5}, size=2)
     if kind == "willow":
         return P.patches({"oak_leaves": 3, "mangrove_leaves": 2, "azalea_leaves": 1}, size=2)
+    if kind == "palm":
+        return P.patches({"jungle_leaves": 7, "oak_leaves": 0.5}, size=2)
+    if kind == "cypress":
+        return P.patches({"spruce_leaves": 4, "dark_oak_leaves": 2, "jungle_leaves": 0.3}, size=2)
     return T.leaves
 
 
@@ -308,6 +331,83 @@ def _pine(base, height, rng, seed) -> TreeResult:
         k += 1
     leaves = leaves | sdf.cylinder(top, 3.5, 1.3, 0.2).mask()
     return TreeResult(wood, leaves, top=tuple(top))
+
+
+def _palm(base, height, rng, seed) -> TreeResult:
+    """Palm: a thin trunk leaning out at the foot and curving up, a crown of 7-9 drooping fronds."""
+    H = height or rng.uniform(8, 13)
+    az = rng.uniform(0, 2 * math.pi)
+    lean = rng.uniform(0.3, 0.6)
+    trunk, top = _grow(base, [math.cos(az) * lean, 1.0, math.sin(az) * lean], H, 0.5, 0.45, rng, step=1.0,
+                       wobble=0.03, up_bias=0.22)
+    pts: set[tuple[int, int, int]] = set()
+
+    def add(p):
+        pts.add((int(math.floor(p[0])), int(math.floor(p[1])), int(math.floor(p[2]))))
+
+    crown = np.asarray(top, float) + np.array([0.0, 0.4, 0.0])
+    n = int(rng.integers(7, 10))
+    for k in range(n):
+        a = 2 * math.pi * k / n + rng.uniform(-0.22, 0.22)
+        length = rng.uniform(4.2, 6.2)
+        d = _unit([math.cos(a), rng.uniform(0.35, 0.75), math.sin(a)])
+        perp = np.array([-math.sin(a), 0.0, math.cos(a)])
+        p = crown.copy()
+        steps = int(length / 0.45)
+        for i in range(steps):
+            t = i / steps
+            d = _unit(d + np.array([0.0, -0.13, 0.0]))  # the frond arches and droops
+            p = p + d * 0.45
+            add(p)
+            if 0.18 < t < 0.78:  # leaflets widen the middle of the frond
+                w = 0.95 if 0.3 < t < 0.65 else 0.6
+                for side in (-1, 1):
+                    add(p + perp * side * w + np.array([0.0, -0.35, 0.0]))
+    tx, ty, tz = (int(math.floor(c)) for c in crown)
+    for dx, dy, dz in ((0, 1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 0, 0)):
+        pts.add((tx + dx, ty + dy, tz + dz))
+    return TreeResult(_line_mask(trunk), Mask.from_points(sorted(pts)), top=tuple(top))
+
+
+def _coconuts(scene, res: TreeResult, rng) -> None:
+    """Two or three coconuts (cocoa pods) hanging on the trunk just under the crown."""
+    if not res.wood:
+        return
+    top_y = int(res.wood.bbox.y2)
+    cells = [tuple(p) for p in res.wood.points().tolist() if p[1] >= top_y - 1]
+    sides = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+    opp = {"north": "south", "south": "north", "east": "west", "west": "east"}
+    placed = 0
+    for x, y, z in cells:
+        for face in rng.permutation(list(sides)):
+            dx, dz = sides[face]
+            if placed < 3 and scene.get(x + dx, y, z + dz) == "minecraft:air":
+                scene.set(x + dx, y, z + dz, f"cocoa[age=2,facing={opp[face]}]")  # facing: towards the log
+                placed += 1
+                break
+
+
+def _cypress(base, height, rng, seed) -> TreeResult:
+    """Italian cypress: a tall dark column, widest in the lower third, tapering to a point."""
+    H = height or rng.uniform(10, 15)
+    R = rng.uniform(1.3, 1.9)
+    trunk, top = _grow(base, [rng.normal(0, 0.02), 1, rng.normal(0, 0.02)], H * 0.7, 0.5, 0.45, rng, step=1.5,
+                       wobble=0.015)
+    x0, y0, z0 = base
+    pts = []
+    for i in range(1, int(H) + 1):
+        t = i / H
+        r = R * min(1.0, 0.45 + t * 3.0) * (1.0 - t) ** 0.55 + 0.3
+        ri = int(math.ceil(r))
+        cy = int(math.floor(y0 + i - 1))
+        for dx in range(-ri, ri + 1):
+            for dz in range(-ri, ri + 1):
+                d = math.hypot(dx, dz)
+                if d <= r and (d <= r - 0.6 or hash01(dx, cy, dz, seed) < 0.75):
+                    pts.append((int(math.floor(x0)) + dx, cy, int(math.floor(z0)) + dz))
+    tx, ty, tz = (int(math.floor(c)) for c in (x0, y0 + H, z0))
+    pts.append((tx, ty, tz))
+    return TreeResult(_line_mask(trunk), Mask.from_points(pts), top=(x0, y0 + H, z0))
 
 
 def _dead(base, height, rng, seed) -> TreeResult:

@@ -13,10 +13,11 @@ BuildMCP scripting API — names available inside run_script:
   Box, Mask   regions; sdf (organic shapes), shapes (lines, splines, circles, polygons, spirals)
   noise       fbm, ridged, worley, hash01 (deterministic)
   terrain     island, ground, cover, pond, waterfall, paint_terrain, decorate_underside
-  trees       tree(at, kind=oak_giant|oak|birch|willow|cherry|pine|dead|fungus_giant|bush), forest
+  trees       tree(at, kind=oak_giant|oak|birch|willow|cherry|pine|palm|cypress|dead|fungus_giant|bush),
+              forest
   arch        roof, walls, window, door, house, tower, column, arch, battlements, pagoda, torii,
-              cone_roof, dome_roof, stairify
-  props       lamp_post, bench, fountain, well, market_stall, portal_frame, banner_pole, planter
+              temple, roman_column, pergola, cone_roof, dome_roof, stairify
+  props       lamp_post, bench, fountain, well, market_stall, portal_frame, banner_pole, planter, sail
   rocks       boulder, rock_cluster, spike, crystal, crystal_cluster, stalactites
   paths       path, plaza, steps, bridge
   text        text3d (built-in pixel font incl. Cyrillic, or TTF)

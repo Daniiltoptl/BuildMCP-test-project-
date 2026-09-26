@@ -809,3 +809,295 @@ def torii(scene, pos, facing: str = "south", *, width: int = 7, height: int = 7,
     p = at(0, y + height)
     scene.set(*p, "red_terracotta")
     return Mask.from_points(cells)
+
+
+# ======================================================================= classical (roman theme)
+_TURNS = {"south": 0, "west": 1, "north": 2, "east": 3}  # quarter turns clockwise from a south-facing build
+
+
+def _turned_paste(scene, tmp, facing: str, anchor):
+    """Paste ``tmp`` (built facing south around local (0,0,0)) into ``scene`` turned to ``facing`` with
+    local (0,0,0) at ``anchor``. Returns (function mapping local points to world points, pasted box)."""
+    turns = _TURNS[facing]
+    clip = tmp.copy()
+    o = np.array(clip.origin, dtype=np.int64)
+    shape0 = tuple(int(v) for v in clip.data.shape)
+
+    def new_index(p):
+        i, j, k = (int(round(p[0])) - o[0], int(round(p[1])) - o[1], int(round(p[2])) - o[2])
+        sx, sy, sz = shape0
+        for _ in range(turns):  # the same (x, z) -> (-z, x) turn as Clip.transformed
+            i, k = sz - 1 - k, i
+            sx, sz = sz, sx
+        return np.array([i, j, k], dtype=np.int64)
+
+    at = np.asarray(anchor, dtype=np.int64) - new_index((0, 0, 0))
+    box = scene.paste(clip, tuple(int(v) for v in at), rotate=turns)
+
+    def to_world(p):
+        """Block cells (int coordinates) map to block cells; points (floats) keep their place in the block."""
+        base = at + new_index((math.floor(p[0]), math.floor(p[1]), math.floor(p[2])))
+        if all(isinstance(c, (int, np.integer)) for c in p):
+            return tuple(int(v) for v in base)
+        fx, fz = p[0] - math.floor(p[0]), p[2] - math.floor(p[2])
+        for _ in range(turns):  # sub-block offsets (entity positions) turn with the build
+            fx, fz = 1.0 - fz, fx
+        return (float(base[0] + fx), float(base[1] + (p[1] - math.floor(p[1]))), float(base[2] + fz))
+
+    return to_world, box
+
+
+def roman_column(scene, base, height: int, *, skip=None) -> Mask:
+    """White classical column standing on ``base``: square base with a flared stair ring, fluted quartz
+    shaft, flared capital with a chiseled abacus. ``skip``: cells to leave alone (a wall behind it)."""
+    x, y, z = (int(v) for v in base)
+    skip = set(skip or ())
+    cells = []
+    for h in range(height):
+        st = "quartz_bricks" if h == 0 else "chiseled_quartz_block" if h == height - 1 else "quartz_pillar[axis=y]"
+        scene.set(x, y + h, z, st)
+        cells.append((x, y + h, z))
+    for d, (dx, dz) in DIRS.items():
+        for yy, half in ((y, "bottom"), (y + height - 1, "top")):
+            p = (x + dx, yy, z + dz)
+            if p not in skip and scene.get(*p) == "minecraft:air":
+                scene.set(*p, f"quartz_stairs[facing={OPP[d]},half={half}]")
+    return Mask.from_points(cells)
+
+
+def temple(scene, at, facing: str = "south", *, width: int = 15, depth: int = 21, podium: int = 3,
+           column_h: int = 8, theme=None, roof_material: str = "granite", roof_rib: str | None = "bricks",
+           interior: bool = True, seed: int = 0) -> dict:
+    """Roman temple on a podium: the hero of a hub with one NPC standing in its portico.
+
+    ``at`` = ground cell under the middle of the lowest front step; ``facing`` = where the portico and
+    the stairs look. Front: a flight of steps between two cheek walls ending in pedestals (braziers,
+    statues), a portico of white columns two bays deep, a Doric frieze, a pediment with a medallion and
+    a gold acroterion, a low tiled roof (``roof_material`` tiles with ``roof_rib`` ribs), columns along
+    the sides of the cella and a tall doorway into a lit interior with a golden altar.
+    Returns world positions: npc (where the NPC stands, in front of the doorway), door, pedestals
+    (tops of the two stair pedestals), roof_top, box.
+    """
+    from ..scene import Scene
+
+    T = _theme(theme or "roman_mediterranean")
+    w2 = max(5, int(width) // 2)
+    pod = max(1, int(podium))
+    ch = max(5, int(column_h))
+    depth = max(14, int(depth))
+    tmp = Scene(scene.version)
+    n = max(2, 2 * ((w2 + 1) // 4))
+    xs = [-(n - 1) * 2 + 4 * i for i in range(n)]
+    xo = (n - 1) * 2  # outer column line
+    zf = -pod - 1  # front column row
+    zc = zf - 8  # cella front wall
+    zb = -(depth - 2)  # cella back wall
+    base_pal = P.gradient([T.wall_base, T.wall], axis="y", start=1, end=pod + 2, jitter=0.8)
+    trim = _fam(tmp, T.trim)
+
+    # --- podium with a plinth and a cornice
+    tmp.put(Box(-w2, 1, -(depth - 1), w2, pod - 1, -pod), base_pal)
+    tmp.put(Box(-w2, pod, -(depth - 1), w2, pod, -pod), P.patches({"smooth_sandstone": 5, "cut_sandstone": 1.2}, size=3,
+                                                              seed=seed))
+    edge = [(x, z) for x in range(-w2 - 1, w2 + 2) for z in range(-depth, -pod + 1)
+            if (x in (-w2 - 1, w2 + 1) or z == -depth) and -w2 - 1 <= x <= w2 + 1]
+    for x, z in edge:
+        face = _face_to(x + 0.5, z + 0.5, 0.5, -depth / 2)
+        if trim.stairs:
+            tmp.set(x, 1, z, f"{trim.stairs}[facing={face},half=bottom]")
+            tmp.set(x, pod, z, f"{trim.stairs}[facing={face},half=top]")
+    # --- front steps between cheek walls with pedestals
+    sx = w2 - 3
+    for k in range(pod):
+        z = -k
+        for x in range(-sx, sx + 1):
+            for y in range(1, k + 1):
+                tmp.put((x, y, z), base_pal)
+            tmp.set(x, k + 1, z, f"{trim.stairs or 'sandstone_stairs'}[facing=north,half=bottom]")
+        for x in list(range(-w2, -sx)) + list(range(sx + 1, w2 + 1)):
+            for y in range(1, pod + 1):
+                tmp.put((x, y, z), base_pal)
+    pedestals = []
+    for side in (-1, 1):
+        cx = side * (w2 - 1)
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                tmp.set(cx + dx, pod + 1, -1 + dz, "chiseled_sandstone" if (dx, dz) == (0, 0) else "cut_sandstone")
+                if (dx, dz) != (0, 0) and trim.slab:
+                    tmp.set(cx + dx, pod + 2, -1 + dz, f"{trim.slab}[type=bottom]")
+        tmp.set(cx, pod + 2, -1, "smooth_sandstone")
+        pedestals.append((cx, pod + 3, -1))
+    # --- portico columns, side columns along the cella
+    col_top = pod + ch
+    for x in xs:
+        roman_column(tmp, (x, pod + 1, zf), ch)
+    cella_x = xo - 1
+    wall_cells = set()
+    for z in range(zb, zc + 1):
+        for x in (-cella_x, cella_x):
+            wall_cells |= {(x, y, z) for y in range(pod + 1, col_top + 1)}
+    for x in range(-cella_x, cella_x + 1):
+        for z in (zc, zb):
+            wall_cells |= {(x, y, z) for y in range(pod + 1, col_top + 1)}
+    for z in range(zf - 4, zb - 1, -4):
+        for x in (-xo, xo):
+            roman_column(tmp, (x, pod + 1, z), ch, skip=wall_cells)
+    # --- cella: walls, doorway, lit interior
+    wall_pal = P.gradient([T.wall_base, T.wall], axis="y", start=pod + 1, end=pod + 4, jitter=0.8)
+    for p in sorted(wall_cells):
+        tmp.put(p, wall_pal)
+    door_h = min(ch - 2, 6)
+    for x in (-1, 0, 1):
+        for y in range(pod + 1, pod + 1 + door_h):
+            for z in (zc, zc - 1):
+                tmp.set(x, y, z, "air")
+    for side in (-2, 2):  # door frame
+        for y in range(pod + 1, pod + 1 + door_h):
+            tmp.set(side, y, zc, "quartz_pillar[axis=y]")
+    for x in range(-2, 3):
+        tmp.set(x, pod + 1 + door_h, zc, "chiseled_quartz_block" if x == 0 else "quartz_bricks")
+        tmp.set(x, pod + 1 + door_h, zc + 1, "quartz_slab[type=top]")
+    if interior:
+        inner = Box(-cella_x + 1, pod + 1, zb + 1, cella_x - 1, col_top, zc - 1)
+        tmp.clear(inner)
+        tmp.put(Box(inner.x1, pod, inner.z1, inner.x2, pod, inner.z2), P.checker("smooth_sandstone", "cut_sandstone"))
+        # golden altar at the back, framed by two torches of light
+        az = zb + 2
+        tmp.set(0, pod + 1, az, "gold_block")
+        tmp.set(0, pod + 2, az, "candle[candles=4,lit=true]")
+        for dx in (-1, 1):
+            tmp.set(dx, pod + 1, az, f"quartz_stairs[facing={'east' if dx < 0 else 'west'},half=bottom]")
+        for dx in (-2, 2):
+            tmp.set(dx, pod + 1, az, "chiseled_quartz_block")
+            tmp.set(dx, pod + 2, az, "lantern[hanging=false]")
+        tmp.set(0, pod + 4, zc - 2, "light[level=14]")
+        tmp.set(0, pod + 4, az + 2, "light[level=12]")
+        # a red carpet from the altar to the door
+        for z in range(az + 1, zc):
+            tmp.set(0, pod + 1, z, "red_carpet")
+    # --- entablature: architrave, Doric frieze, cornice, ceiling
+    ex = xo + 1
+    ez1, ez2 = zb - 1, zf + 1
+    arch_y, frieze_y, top_y = col_top + 1, col_top + 2, col_top + 3
+    for x in range(-ex, ex + 1):
+        for z in range(ez1, ez2 + 1):
+            rim = x in (-ex, ex) or z in (ez1, ez2)
+            tmp.set(x, arch_y, z, "smooth_quartz" if rim else "smooth_sandstone")
+            if rim:
+                tri = ((x if z in (ez1, ez2) else z) % 3) == 0
+                tmp.set(x, frieze_y, z, "chiseled_sandstone" if tri else "cut_sandstone")
+            else:
+                tmp.set(x, frieze_y, z, "smooth_sandstone")
+            tmp.set(x, top_y, z, "smooth_sandstone")
+    for x in range(-ex - 1, ex + 2):
+        for z in range(ez1 - 1, ez2 + 2):
+            if x in (-ex - 1, ex + 1) or z in (ez1 - 1, ez2 + 1):
+                if -ex - 1 <= x <= ex + 1 and ez1 - 1 <= z <= ez2 + 1:
+                    face = "east" if x == -ex - 1 else "west" if x == ex + 1 else "south" if z == ez1 - 1 else "north"
+                    tmp.set(x, top_y, z, f"{trim.stairs or 'sandstone_stairs'}[facing={face},half=top]")
+    # dentils under the cornice on the front
+    for x in range(-ex, ex + 1, 2):
+        tmp.set(x, frieze_y, ez2 + 1, f"{trim.slab or 'sandstone_slab'}[type=top]")
+    # --- low tiled roof with ribs, pediment with a medallion, acroteria
+    roof_box = Box(-ex, top_y - 3, ez1, ex, top_y, ez2)
+    roof(tmp, roof_box, style="gable", theme=T, material=roof_material, accent=T.trim, pitch=0.5, overhang=1,
+         axis="z", gable_fill=P.patches({"smooth_sandstone": 5, "sandstone": 1}, size=2, seed=seed + 1), trim=False)
+    rf = _fam(tmp, roof_material)
+    if roof_rib:  # every other row of tiles in the rib material: the ridged look of clay tiles
+        rb = _fam(tmp, roof_rib)
+        swap = {}
+        for i, st in enumerate(tmp.palette):
+            name = st.removeprefix("minecraft:").split("[", 1)[0]
+            for a, b in ((rf.stairs, rb.stairs), (rf.slab, rb.slab), (rf.base, rb.base)):
+                if a and b and name == a.removeprefix("minecraft:"):
+                    swap[i] = st.replace(a.removeprefix("minecraft:"), b.removeprefix("minecraft:"))
+        b = tmp.bbox()
+        region = Box(b.x1, top_y + 1, b.z1, b.x2, b.y2, b.z2)
+        ids = tmp.ids(region)
+        for i, new in swap.items():
+            for x, y, z in np.argwhere(ids == i).tolist():
+                wx, wy, wz = x + region.x1, y + region.y1, z + region.z1
+                if wz % 2:
+                    tmp.set(wx, wy, wz, new)
+    ridge_y = max(y for (_, y, _) in tmp.mask("#stairs|#slabs", where=Box(-1, top_y, ez1, 1, top_y + 20, ez2))
+                  .points().tolist())
+    # medallion in the front tympanum
+    tymp_z = ez2
+    tmp.set(0, top_y + 2, tymp_z, "gold_block")
+    for dx, dy in ((-1, 0), (1, 0), (0, 1), (0, -1)):
+        if tmp.get(dx, top_y + 2 + dy, tymp_z) != "minecraft:air":
+            tmp.set(dx, top_y + 2 + dy, tymp_z, "chiseled_quartz_block")
+    tmp.set(0, ridge_y + 1, ez2 + 1, "gold_block")  # acroterion over the front gable
+    for cx in (-ex - 1, ex + 1):
+        tmp.set(cx, top_y + 1, ez2 + 1, "decorated_pot[facing=south]")
+    # --- light in the portico ceiling (hidden) and the NPC spot
+    for x in (-4, 0, 4):
+        for z in (zf - 2, zf - 6):
+            if tmp.get(x, col_top - 1, z) == "minecraft:air":
+                tmp.set(x, col_top - 1, z, "light[level=12]")
+    npc_local = (0.5, pod + 1.0, zc + 2 + 0.5)
+    to_world, box = _turned_paste(scene, tmp, facing, at)
+    return {
+        "npc": to_world(npc_local), "door": to_world((0, pod + 1, zc)),
+        "pedestals": [to_world(p) for p in pedestals], "roof_top": to_world((0, ridge_y + 1, ez2 + 1)),
+        "box": box,
+    }
+
+
+def pergola(scene, a, b, *, width: int = 5, height: int = 5, theme=None, greenery: float = 0.45,
+            lanterns: bool = True, seed: int = 0) -> Mask:
+    """Covered walk between ground points ``a`` and ``b`` (same x or same z): white columns every four
+    blocks on both sides, dark timber beams and rafters on top, climbing greenery with glow berries
+    hanging from it (lit at night) and lanterns under the cross beams. ``width`` = walkway width."""
+    T = _theme(theme or "roman_mediterranean")
+    ax, ay, az = (int(v) for v in a)
+    bx, by, bz = (int(v) for v in b)
+    along_z = ax == bx
+    if not along_z and az != bz:
+        raise ValueError("pergola: a and b must share x or z")
+    y0 = min(ay, by)
+    L = abs(bz - az) if along_z else abs(bx - ax)
+    step = 1 if (bz - az if along_z else bx - ax) >= 0 else -1
+    half = max(1, int(width) // 2) + 1
+    rng = np.random.default_rng(seed + 311)
+
+    def P3(t: int, o: int, y: int):  # along-axis t, cross offset o
+        return (ax + o, y, az + step * t) if along_z else (ax + step * t, y, az + o)
+
+    beam_axis_along = "z" if along_z else "x"
+    beam_axis_cross = "x" if along_z else "z"
+    cells = []
+    top = y0 + height + 1
+    for t in range(0, L + 1, 4):
+        for o in (-half, half):
+            roman_column(scene, P3(t, o, y0 + 1), height)
+        for o in range(-half - 1, half + 2):  # cross beam with overhangs
+            scene.set(*P3(t, o, top + 1), f"stripped_dark_oak_log[axis={beam_axis_cross}]")
+            cells.append(P3(t, o, top + 1))
+        if lanterns and t + 2 <= L:
+            scene.set(*P3(t + 2, 0, top), "lantern[hanging=true]")
+    for t in range(-1, L + 2):  # side beams along the walk
+        for o in (-half, half):
+            scene.set(*P3(t, o, top), f"stripped_dark_oak_log[axis={beam_axis_along}]")
+            cells.append(P3(t, o, top))
+    for o in range(-half + 1, half, 2):  # rafters
+        for t in range(0, L + 1):
+            if scene.get(*P3(t, o, top + 1)) == "minecraft:air":
+                scene.set(*P3(t, o, top + 1), "dark_oak_fence")
+                cells.append(P3(t, o, top + 1))
+    leaves = P.patches({"azalea_leaves": 3, "flowering_azalea_leaves": 2, "oak_leaves": 1}, size=2, seed=seed)
+    for t in range(-1, L + 2):
+        for o in range(-half - 1, half + 2):
+            if hash01(t, o, seed, 7) < greenery:
+                p = P3(t, o, top + 2)
+                scene.put(p, leaves)
+                cells.append(p)
+                below = P3(t, o, top + 1)
+                if abs(o) >= half and scene.get(*below) == "minecraft:air" and rng.random() < 0.6:
+                    # glow berries dripping over the sides of the pergola
+                    for k in range(int(rng.integers(1, 4))):
+                        q = P3(t, o, top + 1 - k)
+                        if scene.get(*q) != "minecraft:air":
+                            break
+                        scene.set(*q, f"cave_vines[berries={'true' if k % 2 == 0 else 'false'}]")  # finalize: head/body
+    return Mask.from_points(cells)

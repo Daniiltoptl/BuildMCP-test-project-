@@ -349,3 +349,34 @@ def planter(scene, at, size: int = 3, *, theme=None, flowers=None) -> None:
             else:
                 scene.set(x + dx, y + 1, z + dz, "moss_block" if T.name != "dark_infernal" else "soul_soil")
                 scene.set(x + dx, y + 2, z + dz, fl[(dx * 3 + dz) % len(fl)])
+
+
+def sail(scene, corners, *, color: str = "red", border: str | None = "white", sag: float = 1.2) -> Mask:
+    """Shade sail (velarium): cloth stretched between 3 or 4 corner points (x, y, z) that sags in the
+    middle, with a ``border`` stripe along the edges. Put a mast (log + fence) under each corner."""
+    pts = [np.asarray(c, float) for c in corners]
+    if len(pts) == 3:
+        pts.append(pts[2])
+    if len(pts) != 4:
+        raise ValueError("sail needs 3 or 4 corners")
+    p0, p1, p2, p3 = pts
+    lu = max(np.linalg.norm(p1 - p0), np.linalg.norm(p2 - p3), 1.0)
+    lv = max(np.linalg.norm(p3 - p0), np.linalg.norm(p2 - p1), 1.0)
+    nu, nv = int(lu * 4) + 1, int(lv * 4) + 1
+    cells: dict[tuple[int, int, int], str] = {}
+    for i in range(nu + 1):
+        u = i / nu
+        for j in range(nv + 1):
+            v = j / nv
+            q = (1 - u) * (1 - v) * p0 + u * (1 - v) * p1 + u * v * p2 + (1 - u) * v * p3
+            q = q - np.array([0.0, sag * 16 * u * (1 - u) * v * (1 - v), 0.0])
+            edge = min(u * lu, (1 - u) * lu, v * lv, (1 - v) * lv)
+            cell = (int(math.floor(q[0])), int(math.floor(q[1])), int(math.floor(q[2])))
+            block = f"{border}_wool" if border and edge < 0.9 else f"{color}_wool"
+            if cells.get(cell, "").startswith(f"{border}_wool") and block != cells[cell]:
+                continue  # the border wins where both meet
+            cells[cell] = block
+    for cell, block in cells.items():
+        if scene.get(*cell) == "minecraft:air":
+            scene.set(*cell, block)
+    return Mask.from_points(list(cells))
