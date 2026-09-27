@@ -56,9 +56,11 @@ def _call(tmp):
 def test_gemini_answers_read_only_with_the_task_on_stdin(env):
     cfg = env / "messages.yml"
     cfg.write_text("messages:\n  hello: 'Hello'\n")
+    secret = env / "config.yml"
+    secret.write_text("storage:\n  password: hunter2\n  api-key: sk-123\n")
     st = delegate.status()
     assert st["gemini"]["version"] == "0.61.0" and st["mistral"]["key"] is False
-    out = delegate.run("Translate the messages to Russian, keep the keys.", files=[str(cfg)])
+    out = delegate.run("Translate the messages to Russian, keep the keys.", files=[str(cfg), str(secret)])
     assert out["to"] == "gemini" and out["answer"].endswith("'Привет'") and out["tokens"] == 321
     assert out["model"] == "gemini-2.5-flash"
     call = _call(env)
@@ -66,6 +68,7 @@ def test_gemini_answers_read_only_with_the_task_on_stdin(env):
     assert a[a.index("--approval-mode") + 1] == "plan" and a[a.index("-o") + 1] == "json" and "--skip-trust" in a
     assert call["stdin"].startswith(delegate.SYSTEM) and "Translate the messages" in call["stdin"]
     assert "--- FILE messages.yml ---\nmessages:\n  hello: 'Hello'" in call["stdin"]
+    assert "hunter2" not in call["stdin"] and "sk-123" not in call["stdin"] and "password: '***'" in call["stdin"]
     with pytest.raises(delegate.DelegateError, match="quota exceeded"):
         delegate.run("FAIL PLEASE")
     u = delegate.usage()

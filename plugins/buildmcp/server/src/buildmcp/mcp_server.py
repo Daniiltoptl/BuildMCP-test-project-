@@ -21,6 +21,9 @@ Load the spawn-builder skill for the workflow and design rules. Core loop:
 project_new/project_open -> run_script (procedural code, one pipeline step per call) ->
 render (look!) -> inspect (lint/walk) -> fix -> export / server_paste.
 Call api_docs() once per session before writing scripts.
+Servers, networks, plugins, configs, own plugins: load the server-admin skill (srv_setup, srv_power,
+plugins, config, srv_link, devplugin). delegate hands simple text/code work to Gemini CLI or Mistral to
+save limits; building is never delegated.
 """
 
 server = MCPServer(name="buildmcp", version=__version__, instructions=INSTRUCTIONS)
@@ -561,7 +564,8 @@ def export(format: str = "schem", name: str = "", region: list[int] | None = Non
 # ====================================================================== setup
 @server.tool()
 def setup_check() -> str:
-    """Diagnostics: versions, folders, renderer assets/JIT status, server connection settings."""
+    """Diagnostics: versions, folders, renderer assets/JIT status, server connection settings, the Java
+    installations and registered servers, and whether Gemini CLI / a Mistral key are there for delegate."""
     import platform
     import sys
 
@@ -584,6 +588,16 @@ def setup_check() -> str:
     assets = sorted(p.name for p in (data_dir() / "assets").glob("*") if (p / ".complete").exists()) \
         if (data_dir() / "assets").exists() else []
     info["assets_downloaded"] = assets
+    try:  # running servers: Java, registered servers, the helpers delegate can use
+        from buildmcp.admin import delegate, process, registry
+
+        info["java"] = [f"{process._java_major_cached(j)}: {j}" for j in process.java_candidates()[:8]] or \
+            "none found: install Temurin JDK 21 (and 25 for the newest Velocity and plugins), https://adoptium.net"
+        info["servers"] = {n: {"software": f"{e.software} {e.version}".strip(), "running": process.is_running(e),
+                               "dir": e.dir} for n, e in registry.load_all().items()} or "none (srv_setup)"
+        info["delegate"] = delegate.status()
+    except Exception as e:  # noqa: BLE001 - diagnostics never fail
+        info["admin"] = f"unavailable: {e}"
     return _fmt(info)
 
 

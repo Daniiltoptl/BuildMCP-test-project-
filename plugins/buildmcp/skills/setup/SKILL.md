@@ -26,3 +26,10 @@ description: Установка и диагностика BuildMCP — uv, Pytho
 6. Запасной путь без плагина — RCON: `enable-rcon=true`, `rcon.port`, `rcon.password` в
    `server.properties` и те же данные в настройках BuildMCP. Медленнее, без бэкапа и чтения мира.
    До 1.21.5 блоки ставятся с обновлениями соседей (заборы и ступени пересчитает сама игра).
+7. Сервер целиком (skill `server-admin`): `setup_check` показывает найденную Java, серверы и помощников.
+   - Java: Temurin JDK 21, для нового Velocity и свежих сборок плагинов ещё JDK 25 (https://adoptium.net).
+     Ставить их можно рядом, BuildMCP сам выберет нужную.
+   - Gemini CLI для простой работы: `npm i -g @google/gemini-cli`, один раз запусти `gemini` и войди.
+     Если `gemini` не в PATH, укажи путь в настройках плагина (`gemini_cli`).
+   - Mistral: ключ с https://console.mistral.ai в настройки плагина (`mistral_api_key`).
+   - Проверка: `delegate(action="status")`.

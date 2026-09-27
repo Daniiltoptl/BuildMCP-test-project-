@@ -196,11 +196,15 @@ def run_mistral(prompt: str, kind: str = "text", model: str = "", timeout: float
 
 # ------------------------------------------------------------------ the task
 def build_prompt(task: str, files: list[Path]) -> str:
+    """The task and its files. Passwords, tokens, keys and the forwarding secret in them are masked:
+    nothing secret leaves this PC for Google or Mistral."""
+    from .configs import mask_text
+
     parts = [task.strip()]
     total = 0
     for f in files:
         try:
-            text = f.read_text("utf-8", errors="replace")
+            text = mask_text(f.read_text("utf-8", errors="replace"), f)
         except OSError as e:
             raise DelegateError(f"cannot read {f}: {e}") from e
         if len(text) > MAX_FILE:
