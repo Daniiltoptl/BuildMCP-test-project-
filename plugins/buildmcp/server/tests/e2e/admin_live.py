@@ -146,6 +146,12 @@ def main() -> int:
         joined = process.log_lines(lobby, lines=400, grep="BuildMCPTest")
         report["lobby_log_player"] = joined[-5:]
 
+        # a backup of the running lobby: save-off, save-all flush, save-on around the copy
+        bk = call(T.srv_backup, name="lobby", action="create", note="e2e")
+        report["backup"] = bk
+        if bk.get("consistent") != "flushed while running" or bk.get("files", 0) < 10:
+            report["problems"].append(f"backup of the running lobby: {bk}")
+
         # a config change with a restart: the view distance comes back from the running server
         ch = call(T.config, action="set", server="lobby", file="server", path="view-distance", value=7, restart=True)
         if (ch.get("restart") or {}).get("state") != "running":

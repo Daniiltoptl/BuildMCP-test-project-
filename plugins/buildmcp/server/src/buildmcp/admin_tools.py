@@ -485,3 +485,40 @@ def delegate(task: str = "", to: str = "auto", kind: str = "text", files: list[s
                            timeout=max(10.0, min(timeout, 1800.0))))
     except Exception as ex:  # noqa: BLE001
         return _err(ex)
+
+
+# ====================================================================== backups
+@server.tool()
+def srv_backup(name: str = "", action: str = "create", backup: str = "", note: str = "", keep: int = 10,
+               copy_to: str = "") -> str:
+    """Backups of a whole server: worlds, configs and plugins, as zips in BuildMCP's data folder.
+
+    action:
+      create   works while the server runs (save-off + save-all flush first, then save-on); note=
+               becomes part of the name; keeps the newest ``keep``.
+      list     the backups with size and date.
+      restore  the server must be stopped; the current state is saved first (…-before-restore), so a
+               restore can be undone. backup= a name from list (default: the newest).
+      delete   one backup. copy: to ``copy_to`` (another disk or a synced folder).
+    Make one before big changes: plugin updates, pasting a new spawn into a live world, config experiments.
+    """
+    try:
+        from buildmcp.admin import backups
+
+        e = _entry(name)
+        a = action.lower().strip()
+        if a == "create":
+            return _fmt(backups.create(e, note=note, keep=max(0, keep)))
+        if a == "list":
+            return _fmt(backups.listing(e) or f"no backups of {e.name} yet")
+        if a == "restore":
+            return _fmt(backups.restore(e, backup))
+        if a == "delete":
+            return _fmt(backups.delete(e, backup))
+        if a == "copy":
+            if not copy_to or not backup:
+                return "Error: copy needs backup and copy_to"
+            return _fmt(backups.copy_out(e, backup, copy_to))
+        return "Error: action must be create | list | restore | delete | copy"
+    except Exception as ex:  # noqa: BLE001
+        return _err(ex)
