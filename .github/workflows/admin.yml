@@ -1,0 +1,70 @@
+name: admin
+
+# The server tools against the real world: the plugin catalog and cores resolve and download from the
+# live sources, and a real Paper backend and Velocity proxy are set up, get their plugins and start.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "plugins/buildmcp/server/src/buildmcp/admin/**"
+      - "plugins/buildmcp/server/src/buildmcp/admin_tools.py"
+      - "plugins/buildmcp/server/src/buildmcp/server_tools.py"
+      - "plugins/buildmcp/server/tests/e2e/catalog_live.py"
+      - "plugins/buildmcp/server/tests/e2e/admin_live.py"
+      - ".github/workflows/admin.yml"
+  schedule:
+    - cron: "17 5 * * 1"  # weekly: the sources change under the catalog
+  workflow_dispatch:
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: plugins/buildmcp/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Every catalog plugin resolves, downloads and fits its platforms
+        run: uv run python tests/e2e/catalog_live.py --mc 1.21.8 --out /tmp/catalog-report.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-report
+          path: /tmp/catalog-report.json
+          if-no-files-found: ignore
+
+  servers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: plugins/buildmcp/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Paper and Velocity set up, plugins installed and enabled, commands, stop
+        run: uv run python tests/e2e/admin_live.py --mc 1.21.8 --dir /tmp/admin-e2e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-e2e
+          path: |
+            /tmp/admin-e2e/admin-e2e.json
+            /tmp/admin-e2e/*/logs/
+            /tmp/admin-e2e/*/.buildmcp/console.log
+            /tmp/admin-e2e/*/.buildmcp/plugins.lock.json
+          if-no-files-found: ignore

@@ -128,3 +128,115 @@ def srv_log(name: str = "", lines: int = 60, grep: str = "", problems: bool = Fa
         return "\n".join(out) if out else "(log is empty)"
     except Exception as e:  # noqa: BLE001
         return _err(e)
+
+
+# ====================================================================== plugins
+@server.tool()
+def plugins(action: str = "list", names: list[str] | str | None = None, server: str = "", query: str = "",
+            category: str = "", deps: bool = True, dry_run: bool = False, force: bool = False,
+            keep_data: bool = True, restart: bool = False) -> str:
+    """Plugins of a registered server (default: the active one).
+
+    action:
+      catalog  plugins BuildMCP knows by name (filter: category) and ready stacks (lobby, anarchy,
+               survival, proxy, proxy-offline).
+      search   find plugins on Modrinth, Hangar and SpigotMC by ``query`` for this server's platform.
+      info     the build that would be installed for each of ``names`` (version, Minecraft versions,
+               dependencies, page) without downloading.
+      install  ``names``: catalog aliases (luckperms), stacks (stack:lobby) or specs (modrinth:slug,
+               hangar:slug, spigot:id, github:owner/repo#asset-regex, jenkins:job-url#regex,
+               url:https://...jar). Picks the build for the platform (Paper/Purpur, Folia, Velocity) and
+               the Minecraft version, verifies the checksum and the plugin descriptor, pulls hard
+               dependencies (deps=True). force=True reinstalls ones already there. dry_run=True: plan only.
+      list     installed plugins, where they come from, and whether they enabled at the last start.
+      update   newer builds for ``names`` (default: all whose source is known).
+      remove   jars (keep_data=False: also their folders) go to .buildmcp/removed/<time>.
+      disable / enable   X.jar <-> X.jar.disabled.
+    restart=True: stop a running server before the files change, then start it and report which plugins
+    enabled and which failed (and why). Without it, changes load at the next restart.
+    """
+    try:
+        from buildmcp.admin import catalog, installer, process
+
+        a = action.lower().strip()
+        if isinstance(names, str):
+            names = names.replace(",", " ").split()
+        names = [n for n in (names or []) if n and n.strip()]
+        if a == "catalog":
+            return _fmt({"plugins": catalog.overview(category.strip().lower()),
+                         "stacks": {k: v for k, v in catalog.STACKS.items()},
+                         "categories": sorted({e["category"] for e in catalog.CATALOG.values()})})
+        e = _entry(server)
+        platform, mc = installer.platform_of(e), installer.mc_of(e)
+        if a == "search":
+            q = query.strip() or " ".join(names)
+            if not q:
+                return "Error: search needs query"
+            return _fmt(installer.search(q, platform, mc))
+        if a == "info":
+            if not names:
+                return "Error: info needs names"
+            return _fmt(installer.info(names, platform, mc))
+        if a == "list":
+            log = process.log_lines(e, lines=20000)
+            rep = installer.listing(e, log)
+            rep["running"] = process.is_running(e)
+            return _fmt(rep)
+        if a not in ("install", "update", "remove", "disable", "enable"):
+            return "Error: action must be catalog | search | info | install | list | update | remove | disable | enable"
+        if a != "update" and not names:
+            return f"Error: {a} needs names"
+        was_running = process.is_running(e)
+        stopped: dict = {}
+
+        def before_commit() -> None:
+            if restart and was_running and not stopped:
+                stopped.update(process.stop(e))
+
+        if a == "install":
+            rep = installer.install(e, names, deps=deps, dry_run=dry_run, force=force, before_commit=before_commit)
+        elif a == "update":
+            rep = installer.update(e, names or None, dry_run=dry_run, before_commit=before_commit)
+        elif dry_run:
+            return "Error: dry_run is for install and update"
+        else:
+            before_commit()
+            rep = (installer.remove(e, names, keep_data=keep_data) if a == "remove"
+                   else installer.set_enabled(e, names, enabled=(a == "enable")))
+        if stopped:
+            rep["stopped"] = stopped.get("state")
+        if dry_run or not rep.get("changed"):
+            if stopped:  # nothing changed after all: bring it back
+                rep["start"] = _start_report(e, installer, process, [])
+            return _fmt(rep)
+        touched = [r.get("name") or r.get("want") for r in rep.get("result", []) if isinstance(r, dict)
+                   and r.get("status") in ("installed", "updated", "enabled")]
+        if restart:
+            rep["start"] = _start_report(e, installer, process, touched)
+        elif was_running:
+            rep["next"] = "the server is running: restart it to load the changes (plugins(..., restart=True) " \
+                          "or srv_power(action='restart'))"
+        return _fmt(rep)
+    except Exception as ex:  # noqa: BLE001
+        return _err(ex)
+
+
+def _start_report(e, installer, process, touched: list[str]) -> dict:
+    """Start the server and say how the plugins that just changed fared."""
+    try:
+        r = process.start(e, wait=True, timeout=300)
+    except Exception as ex:  # noqa: BLE001
+        return {"state": "not started", "error": str(ex)}
+    out = {"state": r.get("state"), "seconds": r.get("seconds")}
+    if r.get("problems"):
+        out["problems"] = r["problems"][:15]
+    report = installer.load_report(process.log_lines(e, lines=20000))
+    if touched:
+        out["plugins"] = {n: (report.get(str(n).lower()) or {"state": "not seen in the log"})["state"]
+                          + ((": " + report[str(n).lower()]["why"]) if report.get(str(n).lower(), {}).get("why")
+                             else "") for n in touched}
+    bad = {v["name"]: v["state"] + (": " + v["why"] if v.get("why") else "") for v in report.values()
+           if v["state"] != "enabled"}
+    if bad:
+        out["failed_plugins"] = bad
+    return out
