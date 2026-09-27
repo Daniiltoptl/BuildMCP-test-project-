@@ -32,7 +32,8 @@ VELOCITY_FLAGS = ["-XX:+UseG1GC", "-XX:G1HeapRegionSize=4M", "-XX:+UnlockExperim
 CONSOLE_FLAGS = ["-Dterminal.jline=false", "-Dterminal.ansi=false", "-Dfile.encoding=UTF-8",
                  "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8"]
 
-READY_RE = re.compile(r"\bDone \(\d+[.,]\d+s\)!")
+# Paper: "Done (12.345s)!"; Velocity formats with #.## and prints "Done (7s)!" for a whole number
+READY_RE = re.compile(r"\bDone \(\d+(?:[.,]\d+)?s\)!")
 
 
 class ProcessError(RuntimeError):

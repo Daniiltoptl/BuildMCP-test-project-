@@ -221,6 +221,13 @@ def test_start_refuses_without_eula(data):
         process.start(e)
 
 
+def test_ready_line_of_paper_and_velocity():
+    for line in ('[10:00:03 INFO]: Done (3.1s)! For help, type "help"', "[15:05:51 INFO]: Done (7s)!",
+                 "[15:05:51 INFO]: Done (3,33s)!"):
+        assert process.READY_RE.search(line), line
+    assert not process.READY_RE.search("[10:00:00 INFO]: Done preparing level")
+
+
 def test_problems_filter():
     lines = ["[10:00:00 INFO]: Loading plugins", "[10:00:01 ERROR]: Error occurred while enabling Foo v1.0",
              "\tat org.bukkit.Something(Something.java:1)", "[10:00:02 WARN]: **** FAILED TO BIND TO PORT!",
