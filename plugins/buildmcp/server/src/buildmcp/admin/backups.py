@@ -95,6 +95,7 @@ def create(entry: ServerEntry, note: str = "", keep: int = 10) -> dict:
     flushed = _flush(entry)
     t0 = time.time()
     total = count = 0
+    skipped: list[str] = []
     try:
         with zipfile.ZipFile(dest.with_suffix(".part"), "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             for f in _files(root):
@@ -104,8 +105,8 @@ def create(entry: ServerEntry, note: str = "", keep: int = 10) -> dict:
                     z.write(f, rel, compress_type=comp)
                     total += f.stat().st_size
                     count += 1
-                except (OSError, ValueError):
-                    continue  # a file that vanished or is locked (the server keeps writing some)
+                except (OSError, ValueError) as ex:  # vanished, or locked by another program
+                    skipped.append(f"{rel}: {type(ex).__name__}")
         dest.with_suffix(".part").replace(dest)
     finally:
         if flushed:
@@ -120,7 +121,8 @@ def create(entry: ServerEntry, note: str = "", keep: int = 10) -> dict:
     return {"server": entry.name, "backup": dest.name, "path": str(dest), "files": count,
             "mb": round(total / 1e6, 1), "zip_mb": round(dest.stat().st_size / 1e6, 1),
             "seconds": round(time.time() - t0, 1), "consistent": "flushed while running" if flushed else "server stopped",
-            **({"pruned": removed} if removed else {})}
+            **({"pruned": removed} if removed else {}),
+            **({"skipped": skipped[:20], "warning": f"{len(skipped)} files could not be read"} if skipped else {})}
 
 
 def listing(entry: ServerEntry) -> list[dict]:

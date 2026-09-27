@@ -41,8 +41,12 @@ jobs:
           if-no-files-found: ignore
 
   servers:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: plugins/buildmcp/server
@@ -59,16 +63,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
       - name: Paper and Velocity set up, plugins installed and enabled, commands, stop
-        run: uv run python tests/e2e/admin_live.py --mc 1.21.8 --dir /tmp/admin-e2e
+        run: uv run python tests/e2e/admin_live.py --mc 1.21.8 --dir "${{ runner.temp }}/admin-e2e"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONUTF8: "1"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: admin-e2e
+          name: admin-e2e-${{ matrix.os }}
           path: |
-            /tmp/admin-e2e/admin-e2e.json
-            /tmp/admin-e2e/*/logs/
-            /tmp/admin-e2e/*/.buildmcp/console.log
-            /tmp/admin-e2e/*/.buildmcp/plugins.lock.json
+            ${{ runner.temp }}/admin-e2e/admin-e2e.json
+            ${{ runner.temp }}/admin-e2e/*/logs/
+            ${{ runner.temp }}/admin-e2e/*/.buildmcp/console.log
+            ${{ runner.temp }}/admin-e2e/*/.buildmcp/plugins.lock.json
           if-no-files-found: ignore
