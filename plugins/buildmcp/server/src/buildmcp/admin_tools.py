@@ -240,3 +240,140 @@ def _start_report(e, installer, process, touched: list[str]) -> dict:
     if bad:
         out["failed_plugins"] = bad
     return out
+
+
+# ====================================================================== configs
+@server.tool()
+def config(action: str = "files", file: str = "", path: str = "",
+           value: str | int | float | bool | list | dict | None = None, changes: dict | None = None,
+           unset: list[str] | None = None, text: str = "", pattern: str = "", server: str = "", under: str = "",
+           depth: int = 2, backup: str = "", reveal: bool = False, restart: bool = False) -> str:
+    """Config files of a registered server (default: the active one), changed in place with comments kept.
+
+    action:
+      files    the config files (under="plugins/LuckPerms" narrows it).
+      get      a whole file, or one value with path="proxies.velocity.enabled".
+      outline  the key tree of a big file (depth levels) with short values.
+      find     keys or values matching the regex ``pattern`` in every config (or only ``file``).
+      set      path + value, or changes={"path": value, ...}; unset=[paths] removes keys.
+      write    replace (or create) ``file`` with ``text``, after checking it parses.
+      diff     what changed since the last backup (or ``backup``); backups lists them;
+      restore  brings one back (default: the latest).
+    file: a path in the server folder, a shortcut (server, paper-global, paper-world, spigot, bukkit, purpur,
+    velocity) or a plugin name (LuckPerms -> plugins/LuckPerms/config.yml). Paths: dots between keys, [n]
+    for list items, quotes around keys that contain dots: 'messages."no.permission"'. YAML, TOML, JSON and
+    .properties keep comments and order; every write keeps a backup. Secrets (passwords, tokens, the
+    forwarding secret) show as *** unless reveal=True. Most configs load at start: restart=True restarts a
+    running server after a change (many plugins also reload by command, e.g. server_cmd("lp reload")).
+    """
+    try:
+        from buildmcp.admin import configs, process
+
+        e = _entry(server)
+        a = action.lower().strip()
+        if a == "files":
+            return _fmt(configs.list_files(e, under))
+        if a == "find":
+            if not pattern:
+                return "Error: find needs pattern (a regex)"
+            return _fmt(configs.find(e, pattern, [file] if file else None, reveal=reveal))
+        if not file:
+            return f"Error: {a} needs file"
+        if a == "get":
+            return _fmt(configs.read(e, file, path, reveal=reveal))
+        if a == "outline":
+            return _fmt(configs.outline(e, file, depth=max(1, min(depth, 6)), reveal=reveal))
+        if a == "backups":
+            return _fmt(configs.backups(e, file))
+        if a == "diff":
+            return _fmt(configs.diff(e, file, backup, reveal=reveal))
+        if a == "set":
+            ch = dict(changes or {})
+            if path:
+                ch[path] = value
+            if not ch and not unset:
+                return "Error: set needs path and value, changes={...} or unset=[...]"
+            rep = configs.apply(e, file, ch, unset, create=True)
+        elif a == "write":
+            if not text:
+                return "Error: write needs text"
+            rep = configs.write_text(e, file, text)
+        elif a == "restore":
+            rep = configs.restore(e, file, backup)
+        else:
+            return "Error: action must be files | get | outline | find | set | write | diff | backups | restore"
+        wrote = bool(rep.get("changed") or rep.get("written") or rep.get("restored"))
+        if wrote and process.is_running(e):
+            if restart:
+                r = process.restart(e)
+                rep["restart"] = {k: r.get(k) for k in ("state", "seconds", "problems") if r.get(k)}
+            else:
+                rep["next"] = "the server is running: the change loads at the next restart (restart=True does it)"
+        return _fmt(rep)
+    except Exception as ex:  # noqa: BLE001
+        return _err(ex)
+
+
+# ====================================================================== network
+@server.tool()
+def srv_link(proxy: str, backends: list[str] | str | None = None, try_order: list[str] | None = None,
+             forced_hosts: dict | None = None, online_mode: bool | None = None, proxy_port: int = 0,
+             local_only: bool = True, restart: bool = False) -> str:
+    """Wire a Velocity proxy and its backends into one network (modern forwarding), keeping all comments.
+
+    backends: registered Paper/Purpur/Folia servers (default: the ones whose network is this proxy).
+    try_order: where players land first and fall back to (default: backends with role lobby/hub, else the
+    first). forced_hosts: {"play.example.net": ["lobby"]}. online_mode: the proxy checks accounts with
+    Mojang (True: licensed) or not (False: then add auth on the proxy, stack:proxy-offline).
+    proxy_port: the public port (usually 25565); a stopped backend holding it moves to a free port.
+    local_only: backends listen on 127.0.0.1 only, so nobody can skip the proxy.
+    Writes velocity.toml (forwarding, [servers], try, forced hosts, bind), the forwarding secret
+    (generated once, copied into every backend's paper-global.yml, never shown), online-mode=false on the
+    backends. restart=True (re)starts all of them, backends first, and reports how they came up.
+    """
+    try:
+        from buildmcp.admin import network, process, registry, setup
+
+        p = registry.get(proxy)
+        if isinstance(backends, str):
+            backends = backends.replace(",", " ").split()
+        alls = registry.load_all()
+        if backends:
+            bs = [registry.get(n) for n in backends]
+        else:
+            bs = [x for x in alls.values() if not x.is_proxy and x.network == p.name]
+            if not bs:
+                others = [x.name for x in alls.values() if not x.is_proxy]
+                return f"Error: say which backends to link: backends=[...] (registered: {', '.join(others) or 'none'})"
+        moved = []
+        if proxy_port and p.port != proxy_port:
+            holder = next((x for x in alls.values() if x.name != p.name and x.port == proxy_port), None)
+            if holder is not None:
+                if process.is_running(holder):
+                    return f"Error: {holder.name} runs on {proxy_port}: stop it first so it can move"
+                taken = {x.port for x in alls.values()} | {proxy_port}
+                moved.append(network.move_port(holder, setup.pick_port(25566, taken)))
+                bs = [registry.get(x.name) for x in bs]
+            if process.is_running(p):
+                return f"Error: {p.name} is running: stop it first to change its port"
+            moved.append(network.move_port(p, proxy_port))
+            p = registry.get(p.name)
+        rep = network.link(p, bs, try_order=try_order, forced_hosts=forced_hosts, online_mode=online_mode,
+                           local_only=local_only)
+        if moved:
+            rep["ports"] = moved
+        running = [x for x in bs + [p] if process.is_running(x)]
+        if restart:
+            rep["restart"] = {}
+            for x in bs + [p]:
+                x = registry.get(x.name)
+                r = process.restart(x) if x in running or process.is_running(x) else process.start(x)
+                rep["restart"][x.name] = {k: r.get(k) for k in ("state", "seconds", "problems", "java") if r.get(k)}
+        elif running:
+            rep["next"] = (f"restart {', '.join(x.name for x in running)} to load it (srv_link(..., restart=True) or "
+                           "srv_power), backends first")
+        else:
+            rep["next"] = "start the backends, then the proxy: srv_power(name, 'start')"
+        return _fmt(rep)
+    except Exception as ex:  # noqa: BLE001
+        return _err(ex)

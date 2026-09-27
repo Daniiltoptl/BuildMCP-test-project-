@@ -63,30 +63,44 @@ def read(path: Path) -> dict[str, str]:
     return out
 
 
-def update(path: Path, changes: dict) -> list[tuple[str, str | None, str]]:
-    """Set keys (values are converted with str(); True/False become true/false). Existing lines are
-    rewritten in place, new keys are appended. Returns [(key, old, new)] for the keys that changed."""
+def fmt(v) -> str:
+    """How a value is written: True/False become true/false, None an empty value."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return "" if v is None else str(v)
+
+
+def update(path: Path, changes: dict, remove: list[str] | None = None) -> list[tuple[str, str | None, str | None]]:
+    """Set keys (values are converted with fmt()) and remove keys. Existing lines are rewritten in
+    place, new keys are appended. Returns [(key, old, new)] for the keys that changed (new None =
+    removed)."""
     path = Path(path)
     try:
         lines = path.read_text("utf-8", errors="replace").splitlines()
     except OSError:
         lines = []
-    want = {k: (("true" if v else "false") if isinstance(v, bool) else str(v)) for k, v in changes.items()}
+    want = {k: fmt(v) for k, v in changes.items()}
+    drop = set(remove or [])
     done: dict[str, str | None] = {}
-    report = []
-    for i, line in enumerate(lines):
+    report: list[tuple[str, str | None, str | None]] = []
+    kept = []
+    for line in lines:
         kv = _split(line)
+        if kv and kv[0] in drop:
+            report.append((kv[0], kv[1], None))
+            continue
         if kv and kv[0] in want and kv[0] not in done:
             k, old = kv
             done[k] = old
             if old != want[k]:
-                lines[i] = f"{k}={_escape_value(want[k])}"
+                line = f"{k}={_escape_value(want[k])}"
                 report.append((k, old, want[k]))
+        kept.append(line)
     for k, v in want.items():
         if k not in done:
-            lines.append(f"{k}={_escape_value(v)}")
+            kept.append(f"{k}={_escape_value(v)}")
             report.append((k, None, v))
     if report or not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(lines) + "\n", "utf-8")
+        path.write_text("\n".join(kept) + "\n", "utf-8")
     return report

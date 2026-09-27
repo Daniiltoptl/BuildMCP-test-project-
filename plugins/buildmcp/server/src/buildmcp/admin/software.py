@@ -92,8 +92,27 @@ def download(software: str, version: str, dest_dir: Path) -> dict:
     return r
 
 
+def java_from_jar(jar: Path) -> int | None:
+    """Java version the jar's main class was compiled for (class file major - 44). Velocity's is the
+    real minimum; Paperclip launchers are compiled for old Java on purpose, so the table below wins."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(jar) as z:
+            mf = z.read("META-INF/MANIFEST.MF").decode("utf-8", errors="replace")
+            m = re.search(r"^Main-Class:\s*(\S+)", mf, re.M)
+            if not m:
+                return None
+            head = z.read(m.group(1).replace(".", "/") + ".class")[:8]
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return None
+    if head[:4] != b"\xca\xfe\xba\xbe":
+        return None
+    return int.from_bytes(head[6:8], "big") - 44
+
+
 def java_required(software: str, version: str) -> int:
-    """Minimum Java major version for a core."""
+    """Minimum Java major version for a core (by the table; see also java_from_jar)."""
     if software == "velocity":
         return 21
     m = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?", version or "")

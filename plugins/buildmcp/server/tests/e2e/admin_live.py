@@ -5,7 +5,9 @@
 1. srv_setup: a Paper backend and a Velocity proxy, cores downloaded from the live APIs.
 2. plugins install: a lobby set on Paper and the proxy stack on Velocity, dependencies included.
 3. plugins restart: the runner starts both; every installed plugin has to enable.
-4. console commands through the runner and RCON, plugins list, then srv_power stop.
+4. console commands through the runner and RCON, plugins list.
+5. srv_link: a test client logs in through the proxy and reaches the backend; a direct login to the
+   backend is refused. A config change with restart=True. Then srv_power stop.
 The report goes to <dir>/admin-e2e.json; the logs stay in the server folders.
 """
 
@@ -22,13 +24,19 @@ PAPER_PLUGINS = ["luckperms", "placeholderapi", "worldguard", "tab", "fancynpcs"
                  "essentialsx", "coreprotect", "chunky", "spark", "grimac"]
 
 
-def call(fn, **kw) -> dict | list | str:
+PROBLEMS: list[str] = []
+
+
+def call(fn, fatal: bool = True, **kw) -> dict | list | str:
     t0 = time.time()
     out = fn(**kw)
     print(f"--- {fn.__name__}({', '.join(f'{k}={v!r}' for k, v in kw.items())}) {time.time() - t0:.1f}s\n{out[:4000]}",
           flush=True)
     if out.startswith("Error"):
-        raise SystemExit(f"{fn.__name__} failed: {out}")
+        if fatal:
+            raise SystemExit(f"{fn.__name__} failed: {out}")
+        PROBLEMS.append(f"{fn.__name__}({kw}): {out[:300]}")
+        return out
     try:
         return json.loads(out)
     except ValueError:
@@ -47,7 +55,10 @@ def main() -> int:
     from buildmcp import server_tools as S
     from buildmcp.admin import process, registry
 
-    report: dict = {"mc": a.mc, "problems": []}
+    sys.path.insert(0, str(Path(__file__).parent))
+    import mc_login
+
+    report: dict = {"mc": a.mc, "problems": PROBLEMS}
     try:
         call(T.srv_setup, name="lobby", dir=str(base / "lobby"), software="paper", version=a.mc, memory="2G",
              accept_eula=True, motd="BuildMCP e2e")
@@ -79,7 +90,7 @@ def main() -> int:
         report["lp_info"] = out[-10:]
         if not any("LuckPerms" in l for l in out):
             report["problems"].append("'lp info' printed nothing about LuckPerms")
-        rcon = call(S.server_cmd, command="plugins", server="lobby")
+        rcon = call(S.server_cmd, fatal=False, command="plugins", server="lobby")
         report["rcon_plugins"] = rcon
         if "LuckPerms" not in str(rcon):
             report["problems"].append("RCON 'plugins' does not list LuckPerms")
@@ -101,8 +112,39 @@ def main() -> int:
         for name, state in (st.get("plugins") or {}).items():
             if state != "enabled":
                 report["problems"].append(f"proxy plugin {name}: {state}")
-        out = call(S.server_cmd, command="velocity plugins", server="proxy")
+        out = call(S.server_cmd, fatal=False, command="velocity plugins", server="proxy")
         report["proxy_plugins"] = out
+
+        # one network: the proxy in front of the lobby (offline mode, so the test client needs no account)
+        link = call(T.srv_link, proxy="proxy", backends=["lobby"], online_mode=False, restart=True)
+        report["link"] = link
+        for n, st in (link.get("restart") or {}).items():
+            if st.get("state") != "running":
+                report["problems"].append(f"{n} after srv_link: {st}")
+        lobby, proxy = registry.get("lobby"), registry.get("proxy")
+        cfg = call(T.config, action="get", server="lobby", file="paper-global", path="proxies.velocity")
+        if cfg.get("value", {}).get("enabled") is not True or cfg["value"].get("secret") != "***":
+            report["problems"].append(f"paper-global after srv_link: {cfg}")
+        try:
+            proto = mc_login.status("127.0.0.1", lobby.port)["version"]["protocol"]
+            report["protocol"] = proto
+            via = mc_login.login("127.0.0.1", proxy.port, proto)
+            report["login_via_proxy"] = via
+            if not via["ok"]:
+                report["problems"].append(f"login through the proxy failed: {via}")
+            direct = mc_login.login("127.0.0.1", lobby.port, proto)
+            report["login_direct"] = direct
+            if direct["ok"] or "velocity" not in str(direct.get("reason", "")).lower():
+                report["problems"].append(f"a direct login to the backend was not refused: {direct}")
+        except Exception as ex:  # noqa: BLE001
+            report["problems"].append(f"login test: {type(ex).__name__}: {ex}")
+        joined = process.log_lines(lobby, lines=400, grep="BuildMCPTest")
+        report["lobby_log_player"] = joined[-5:]
+
+        # a config change with a restart: the view distance comes back from the running server
+        ch = call(T.config, action="set", server="lobby", file="server", path="view-distance", value=7, restart=True)
+        if (ch.get("restart") or {}).get("state") != "running":
+            report["problems"].append(f"restart after config set: {ch}")
 
         # update finds nothing newer right after the install
         up = call(T.plugins, action="update", server="lobby")

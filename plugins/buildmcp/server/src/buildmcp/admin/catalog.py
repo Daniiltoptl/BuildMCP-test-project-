@@ -15,7 +15,7 @@ _P = {
     "placeholderapi": ("PlaceholderAPI", "PlaceholderAPI", ["hangar:PlaceholderAPI", "spigot:6245"], "paper", "core",
                        "плейсхолдеры %...% для TAB, голограмм, меню", []),
     "protocollib": ("ProtocolLib", "ProtocolLib", ["github:dmulloy2/ProtocolLib#^ProtocolLib\\.jar$",
-                                                   "hangar:ProtocolLib", "spigot:1997"], "paper", "core",
+                                                   "hangar:ProtocolLib"], "paper", "core",
                     "библиотека пакетов (нужна части плагинов)", []),
     "packetevents": ("packetevents", "packetevents", ["modrinth:packetevents"], "paper folia velocity", "core",
                      "библиотека пакетов", []),
@@ -35,10 +35,12 @@ _P = {
                     "режим техработ с MOTD и белым списком", []),
     "advancedban": ("AdvancedBan", "AdvancedBan", ["spigot:8695"], "paper", "admin", "баны, муты, варны", []),
     "plan": ("Plan", "Plan", ["modrinth:plan"], "paper velocity", "admin", "аналитика игроков в браузере", []),
-    "discordsrv": ("DiscordSRV", "DiscordSRV", ["modrinth:discordsrv", "spigot:18494"], "paper", "admin",
+    "discordsrv": ("DiscordSRV", "DiscordSRV", ["modrinth:discordsrv"], "paper", "admin",
                    "мост чата с Discord", []),
-    "spark": ("spark", "spark", ["modrinth:spark"], "paper folia velocity", "perf",
-              "профайлер: лаги, TPS, память (/spark profiler)", []),
+    "spark": ("spark", "spark", ["jenkins:https://ci.lucko.me/job/spark#^spark-[0-9.]+-velocity\\.jar$"], "velocity",
+              "perf", "профайлер: лаги, TPS, память (/sparkv profiler на прокси)", [],
+              {"builtin": {"paper": "spark is built into Paper since 1.21: /spark profiler, /spark tps",
+                           "folia": "spark is built into Folia: /spark profiler"}}),
     # ---- compatibility
     "viaversion": ("ViaVersion", "ViaVersion", ["modrinth:viaversion", "hangar:ViaVersion"], "paper velocity",
                    "compat", "вход с более новых клиентов (в сети — только на прокси)", []),
@@ -46,22 +48,24 @@ _P = {
                      "paper velocity", "compat", "вход со старых клиентов", ["viaversion"]),
     "viarewind": ("ViaRewind", "ViaRewind", ["modrinth:viarewind", "hangar:ViaRewind"], "paper velocity", "compat",
                   "клиенты 1.7–1.8", ["viabackwards"]),
-    "geyser": ("Geyser", "Geyser-Spigot|Geyser-Velocity|geyser", ["modrinth:geyser"], "paper velocity", "compat", "вход с Bedrock", []),
-    "floodgate": ("Floodgate", "floodgate", ["modrinth:floodgate"], "paper velocity", "compat",
+    "geyser": ("Geyser", "Geyser-Spigot|Geyser-Velocity|geyser", ["geysermc:geyser", "modrinth:geyser"],
+               "paper velocity", "compat", "вход с Bedrock (в сети — на прокси)", []),
+    "floodgate": ("Floodgate", "floodgate", ["geysermc:floodgate", "modrinth:floodgate"], "paper velocity", "compat",
                   "Bedrock-игроки без Java-аккаунта", []),
     # ---- world
     "worldedit": ("WorldEdit", "WorldEdit", ["modrinth:worldedit"], "paper", "build", "редактирование мира", []),
     "fastasyncworldedit": ("FastAsyncWorldEdit", "FastAsyncWorldEdit", ["modrinth:fastasyncworldedit"], "paper",
                            "build", "быстрый WorldEdit (ставится вместо WorldEdit)", []),
-    "worldguard": ("WorldGuard", "WorldGuard", ["modrinth:worldguard", "hangar:WorldGuard"], "paper", "protect",
+    "worldguard": ("WorldGuard", "WorldGuard", ["modrinth:worldguard"], "paper", "protect",
                    "регионы и флаги: защита спавна, pvp, мобы", ["worldedit|fastasyncworldedit"]),
     "coreprotect": ("CoreProtect", "CoreProtect", ["modrinth:coreprotect"], "paper", "protect",
                     "логи блоков и откат гриферства", []),
-    "griefprevention": ("GriefPrevention", "GriefPrevention", ["hangar:GriefPrevention", "spigot:1884"], "paper",
+    "griefprevention": ("GriefPrevention", "GriefPrevention", ["hangar:GriefPrevention", "modrinth:griefprevention"],
+                        "paper",
                         "protect", "приваты золотой лопатой", []),
     "multiverse-core": ("Multiverse-Core", "Multiverse-Core", ["modrinth:multiverse-core", "hangar:Multiverse-Core"],
                         "paper", "world", "несколько миров", []),
-    "voidgen": ("VoidGen", "VoidGen", ["modrinth:voidgen", "spigot:25391"], "paper", "world",
+    "voidgen": ("VoidGen", "VoidGen", ["modrinth:voidgen"], "paper", "world",
                 "генератор пустых миров для лобби", []),
     "chunky": ("Chunky", "Chunky", ["modrinth:chunky", "hangar:Chunky"], "paper folia", "world",
                "прегенерация мира (меньше лагов при исследовании)", []),
@@ -77,8 +81,6 @@ _P = {
                        "голограммы на display-сущностях", []),
     "fancynpcs": ("FancyNpcs", "FancyNpcs", ["modrinth:fancynpcs"], "paper folia", "ui",
                   "NPC с действиями: команды, сообщения, отправка на сервер сети", []),
-    "citizens": ("Citizens", "Citizens", ["jenkins:https://ci.citizensnpcs.co/job/Citizens2#^Citizens-.*\\.jar$"],
-                 "paper", "ui", "NPC (классика, много дополнений)", []),
     "deluxemenus": ("DeluxeMenus", "DeluxeMenus", ["spigot:11734"], "paper", "ui",
                     "меню из предметов, селектор серверов", []),
     "deluxehub": ("DeluxeHub", "DeluxeHub", ["spigot:49425"], "paper", "lobby",
@@ -90,7 +92,7 @@ _P = {
     # ---- auth (offline-mode servers)
     "skinsrestorer": ("SkinsRestorer", "SkinsRestorer", ["modrinth:skinsrestorer"], "paper velocity", "auth",
                       "скины на offline-mode", []),
-    "authmereloaded": ("AuthMeReloaded", "AuthMe", ["github:AuthMe/AuthMeReloaded#AuthMe.*\\.jar$", "spigot:6269"],
+    "authmereloaded": ("AuthMeReloaded", "AuthMe", ["github:AuthMe/AuthMeReloaded#AuthMe.*\\.jar$"],
                        "paper", "auth", "регистрация и вход на offline-mode (одиночный сервер)", []),
     "limboapi": ("LimboAPI", "limboapi", ["modrinth:limboapi"], "velocity", "auth", "виртуальный лимбо на прокси", []),
     "limboauth": ("LimboAuth", "limboauth", ["modrinth:limboauth"], "velocity", "auth",
@@ -111,7 +113,8 @@ _P = {
 
 CATALOG: dict[str, dict] = {
     alias: {"alias": alias, "name": v[0], "plugin_names": v[1].split("|"), "sources": v[2],
-            "platforms": v[3].split(), "category": v[4], "about": v[5], "requires": v[6]}
+            "platforms": v[3].split(), "category": v[4], "about": v[5], "requires": v[6],
+            "builtin": (v[7] if len(v) > 7 else {}).get("builtin", {})}
     for alias, v in _P.items()
 }
 
@@ -126,14 +129,14 @@ STACKS: dict[str, dict] = {
                                   "limboauth", "skinsrestorer"]},
     "lobby": {"about": "лобби/хаб: права, NPC и голограммы, таб, защита, инструменты стройки",
               "plugins": ["luckperms", "placeholderapi", "fancynpcs", "fancyholograms", "tab", "worldedit",
-                          "worldguard", "spark"]},
+                          "worldguard"]},
     "anarchy": {"about": "анархия: защита от крашей и дюпов, античит, прегенерация, чат без жалоб",
                 "plugins": ["luckperms", "placeholderapi", "tab", "anarchyexploitfixes", "grimac", "chunky",
-                            "freedomchat", "spark"]},
+                            "freedomchat"]},
     "survival": {"about": "выживание: EssentialsX, приваты, логи, защита, экономика",
                  "plugins": ["luckperms", "vault", "placeholderapi", "essentialsx", "essentialsx-chat",
                              "essentialsx-spawn", "coreprotect", "worldedit", "worldguard", "griefprevention", "tab",
-                             "chunky", "spark"]},
+                             "chunky"]},
 }
 
 

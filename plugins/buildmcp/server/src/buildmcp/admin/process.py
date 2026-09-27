@@ -64,6 +64,84 @@ def java_major(java: str) -> int | None:
     return int(m.group(2) or 0) if major == 1 else major
 
 
+_JAVA_CACHE: dict[str, tuple[float, int | None]] = {}
+
+
+def _java_major_cached(java: str) -> int | None:
+    try:
+        key, mt = str(Path(java).resolve()), Path(java).stat().st_mtime
+    except OSError:
+        key, mt = java, 0.0
+    hit = _JAVA_CACHE.get(key)
+    if hit and hit[0] == mt:
+        return hit[1]
+    v = java_major(java)
+    _JAVA_CACHE[key] = (mt, v)
+    return v
+
+
+def java_candidates() -> list[str]:
+    """Java executables on this PC: JAVA_HOME and JAVA_HOME_<n> variables, PATH, and the usual JDK folders
+    (Adoptium/Temurin, Oracle, Microsoft, Zulu, Corretto, IntelliJ's ~/.jdks, SDKMAN, /usr/lib/jvm)."""
+    exe = "java.exe" if os.name == "nt" else "java"
+    homes: list[Path] = []
+    for k, v in os.environ.items():
+        if v and (k == "JAVA_HOME" or re.fullmatch(r"JAVA_HOME_\d+(?:_[A-Z0-9]+)?", k)):
+            homes.append(Path(v))
+    globs: list[str] = []
+    home = Path.home()
+    if os.name == "nt":
+        for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("ProgramW6432", ""),
+                     os.environ.get("LOCALAPPDATA", "") + r"\Programs"):
+            if base:
+                globs += [base + r"\Eclipse Adoptium\*", base + r"\Java\*", base + r"\Microsoft\jdk-*",
+                          base + r"\Zulu\*", base + r"\Amazon Corretto\*", base + r"\BellSoft\*",
+                          base + r"\Semeru\*", base + r"\GraalVM\*"]
+    elif sys.platform == "darwin":
+        globs += ["/Library/Java/JavaVirtualMachines/*/Contents/Home",
+                  str(home / "Library/Java/JavaVirtualMachines/*/Contents/Home")]
+    else:
+        globs += ["/usr/lib/jvm/*", "/opt/java/*", "/opt/jdk*", "/usr/java/*"]
+    globs += [str(home / ".jdks" / "*"), str(home / ".sdkman" / "candidates" / "java" / "*")]
+    import glob as _glob
+
+    for g in globs:
+        homes += [Path(x) for x in sorted(_glob.glob(g))]
+    out, seen = [], set()
+    for h in homes:
+        j = h / "bin" / exe
+        if j.is_file():
+            key = str(j.resolve())
+            if key not in seen:
+                seen.add(key)
+                out.append(str(j))
+    w = shutil.which("java")
+    if w and str(Path(w).resolve()) not in seen:
+        out.append(w)
+    return out
+
+
+def find_java(need: int) -> tuple[str, int] | None:
+    """The installed Java closest to ``need`` (at least ``need``): (path, major)."""
+    best = None
+    for j in java_candidates():
+        v = _java_major_cached(j)
+        if v is not None and v >= need and (best is None or v < best[1]):
+            best = (j, v)
+    return best
+
+
+def java_needed(entry: ServerEntry) -> int:
+    from .software import java_from_jar, java_required
+
+    need = java_required(entry.software, entry.version)
+    if entry.jar:
+        from_jar = java_from_jar(entry.path / entry.jar)
+        if from_jar and from_jar > need:
+            need = from_jar
+    return need
+
+
 def memory_mb(mem: str) -> int:
     m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([gGmM]?)\s*[bB]?\s*", mem or "")
     if not m:
@@ -182,19 +260,27 @@ def start(entry: ServerEntry, wait: bool = True, timeout: float = 240.0) -> dict
     if not entry.is_proxy and not _eula_ok(entry.path):
         raise ProcessError("eula.txt is not accepted: the owner has to agree to https://aka.ms/MinecraftEULA "
                            "(srv_setup(..., accept_eula=True) writes it)")
+    java_note = ""
     if not entry.command:
         if not (entry.path / entry.jar).exists():
             raise ProcessError(f"{entry.path / entry.jar} is missing")
         java = java_executable(entry)
-        have = java_major(java)
-        from .software import java_required
+        have = _java_major_cached(java)
+        need = java_needed(entry)
+        if have is None or have < need:
+            found = find_java(need)
+            if found is None:
+                seen = ", ".join(f"{j} ({_java_major_cached(j)})" for j in java_candidates()[:6]) or "none"
+                raise ProcessError(f"{entry.software} {entry.version} needs Java {need}; "
+                                   + (f"{java} is Java {have}" if have else f"no Java at {java}")
+                                   + f". Installed: {seen}. Install Temurin JDK {need} (https://adoptium.net) "
+                                   "and start again: BuildMCP finds it by itself")
+            from . import registry, setup
 
-        need = java_required(entry.software, entry.version)
-        if have is None:
-            raise ProcessError(f"Java not found ({java}). Install Temurin JDK {need}: https://adoptium.net")
-        if have < need:
-            raise ProcessError(f"{entry.software} {entry.version} needs Java {need}, found Java {have} ({java}). "
-                               f"Install Temurin {need} and set it with srv_setup(..., java=path)")
+            entry.java = found[0]
+            registry.put(entry)
+            setup.write_start_scripts(entry)
+            java_note = f"Java {found[1]} ({found[0]}): {entry.software} {entry.version} needs {need}"
     sd = entry.state_dir()
     (sd / RUN_FILE).write_text(json.dumps({"cmd": build_command(entry), "stop_command": stop_command(entry),
                                            "restart_on_crash": bool(entry.restart_on_crash)}, indent=1), "utf-8")
@@ -213,8 +299,11 @@ def start(entry: ServerEntry, wait: bool = True, timeout: float = 240.0) -> dict
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      close_fds=True, **kwargs)
     if not wait:
-        return {"state": "starting"}
-    return wait_ready(entry, offset, timeout)
+        return {"state": "starting", **({"java": java_note} if java_note else {})}
+    res = wait_ready(entry, offset, timeout)
+    if java_note:
+        res["java"] = java_note
+    return res
 
 
 def wait_ready(entry: ServerEntry, offset: int, timeout: float) -> dict:
@@ -335,12 +424,23 @@ _PROBLEM_RES = [
 ]
 
 
+_CLASS_VERSION_RE = re.compile(r"class file version (\d+)\.\d+\), this version of the Java Runtime only recognizes "
+                               r"class file versions up to (\d+)")
+
+
 def problems(lines: list[str], limit: int = 25) -> list[str]:
-    """Lines that look like errors: plugins that failed to load or enable, exceptions, bind errors."""
-    out = []
+    """Lines that look like errors: plugins that failed to load or enable, exceptions, bind errors.
+    Repeated lines are shown once; a Java that is too old gets a plain hint."""
+    out: list[str] = []
     for l in lines:
         if any(r.search(l) for r in _PROBLEM_RES) and not l.lstrip().startswith("at "):
-            out.append(l.strip()[:300])
+            s = l.strip()[:300]
+            m = _CLASS_VERSION_RE.search(l)
+            if m:
+                s = (f"needs Java {int(m.group(1)) - 44}, runs on Java {int(m.group(2)) - 44}: install JDK "
+                     f"{int(m.group(1)) - 44} (BuildMCP picks it up) -- {s[:160]}")
+            if s not in out:
+                out.append(s)
             if len(out) >= limit:
                 break
     return out

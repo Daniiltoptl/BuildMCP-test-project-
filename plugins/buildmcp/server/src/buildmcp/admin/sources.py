@@ -2,7 +2,8 @@
 plain URLs. Each source turns a project into a Release that fits a platform and a Minecraft version.
 
 A spec is ``source:project`` — modrinth:luckperms, hangar:ViaVersion, spigot:6245,
-github:MilkBowl/Vault#^Vault\\.jar$, jenkins:https://ci.example.org/job/X#^X-.*\\.jar$, url:https://...jar
+github:MilkBowl/Vault#^Vault\\.jar$, jenkins:https://ci.example.org/job/X#^X-.*\\.jar$, geysermc:floodgate,
+url:https://...jar
 """
 
 from __future__ import annotations
@@ -17,9 +18,12 @@ MODRINTH = "https://api.modrinth.com/v2"
 HANGAR = "https://hangar.papermc.io/api/v1"
 SPIGET = "https://api.spiget.org/v2"
 GITHUB = "https://api.github.com"
+GEYSER = "https://download.geysermc.org/v2/projects"
 
 MODRINTH_LOADERS = {"paper": ["paper", "purpur", "spigot", "bukkit"], "folia": ["folia"], "velocity": ["velocity"]}
 HANGAR_PLATFORM = {"paper": "PAPER", "folia": "PAPER", "velocity": "VELOCITY"}
+GEYSER_PLATFORM = {"paper": "spigot", "folia": "spigot", "velocity": "velocity"}
+_NOT_PLUGIN_JAR = ("-sources", "-javadoc", "-api.", "-api-")
 
 
 @dataclass
@@ -54,7 +58,7 @@ def parse_spec(spec: str) -> tuple[str, str, str]:
         return "url", spec, ""
     if ":" not in spec:
         raise SourceError(f"'{spec}' is not a source spec (modrinth:slug, hangar:slug, spigot:id, github:owner/repo, "
-                          "jenkins:job-url, url:https://...)")
+                          "jenkins:job-url, geysermc:project, url:https://...)")
     kind, rest = spec.split(":", 1)
     kind = kind.lower()
     pattern = ""
@@ -112,7 +116,7 @@ def _modrinth_file(files: list[dict], platform: str) -> dict | None:
     """The jar of a Modrinth version for the platform: a version may carry one jar per platform
     (Geyser-Spigot.jar and Geyser-Velocity.jar), else the primary file."""
     jars = [f for f in files if str(f.get("filename", "")).endswith(".jar")
-            and not any(w in f["filename"].lower() for w in ("-sources", "-javadoc", "-api."))]
+            and not any(w in f["filename"].lower() for w in _NOT_PLUGIN_JAR)]
     if len(jars) <= 1:
         return jars[0] if jars else None
     for word in _PLATFORM_WORDS.get(platform, ()):
@@ -262,7 +266,8 @@ def github_releases(project: str, pattern: str, platform: str, mc: str = "") -> 
         if rel.get("draft"):
             continue
         for a in rel.get("assets") or []:
-            if rx.search(a.get("name", "")) and a["name"].endswith(".jar"):
+            name = a.get("name", "")
+            if rx.search(name) and name.endswith(".jar") and not any(w in name.lower() for w in _NOT_PLUGIN_JAR):
                 h = {}
                 if str(a.get("digest", "")).startswith("sha256:"):
                     h["sha256"] = a["digest"].split(":", 1)[1]
@@ -289,6 +294,22 @@ def jenkins_releases(job: str, pattern: str, platform: str, mc: str = "") -> lis
     raise SourceError(f"jenkins {job}: no artifact matching {rx.pattern}")
 
 
+# ------------------------------------------------------------------ geysermc
+def geysermc_releases(project: str, platform: str, mc: str = "") -> list[Release]:
+    """GeyserMC's own download API (Geyser, Floodgate): one jar per platform, sha256 given."""
+    b = net.get_json(f"{GEYSER}/{project}/versions/latest/builds/latest", ok404=True)
+    if b is None:
+        raise SourceError(f"geysermc: no project '{project}'")
+    key = GEYSER_PLATFORM.get(platform, "spigot")
+    d = (b.get("downloads") or {}).get(key)
+    if not d:
+        raise SourceError(f"geysermc {project}: no {key} build")
+    url = f"{GEYSER}/{project}/versions/{b.get('version')}/builds/{b.get('build')}/downloads/{key}"
+    return [Release("geysermc", project, str(b.get("project_name") or project), f"{b.get('version')}-b{b.get('build')}",
+                    d.get("name") or f"{project}-{key}.jar", url, {"sha256": d["sha256"]} if d.get("sha256") else {},
+                    [], "release", [], "https://geysermc.org/download")]
+
+
 # ------------------------------------------------------------------ url
 def url_releases(url: str) -> list[Release]:
     name = url.split("?")[0].rstrip("/").split("/")[-1] or "plugin.jar"
@@ -311,6 +332,8 @@ def releases(spec: str, platform: str, mc: str = "") -> list[Release]:
         return github_releases(project, pattern, platform, mc)
     if kind == "jenkins":
         return jenkins_releases(project, pattern, platform, mc)
+    if kind == "geysermc":
+        return geysermc_releases(project, platform, mc)
     if kind == "url":
         return url_releases(project)
     raise SourceError(f"unknown source '{kind}' in '{spec}'")

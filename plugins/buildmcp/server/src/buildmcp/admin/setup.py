@@ -78,7 +78,7 @@ def create(name: str, dir: str, software_name: str = "paper", version: str = "la
     is_proxy = sw in registry.PROXIES
     taken = _taken_ports()
     if not port:
-        port = pick_port(25577 if is_proxy else 25565, taken)
+        port = pick_port(25565, taken)  # a proxy is the public entry: 25565 when it is free
     taken.add(port)
     e = ServerEntry(name=name, dir=str(path.resolve()), software=sw, version=got["version"], build=got["build"],
                     jar=got["name"], memory=memory or ("1G" if is_proxy else "4G"), java=java, port=int(port),
@@ -103,9 +103,17 @@ def create(name: str, dir: str, software_name: str = "paper", version: str = "la
         if not accept_eula:
             report["eula"] = ("not accepted: the owner must agree to https://aka.ms/MinecraftEULA before the first "
                               "start (ask them, then srv_setup(name, dir, adopt=True, accept_eula=True))")
+    else:
+        from .network import NetworkError, ensure_bind
+
+        try:
+            report["bind"] = ensure_bind(e)
+        except NetworkError as ex:  # an unusual jar: Velocity writes the default config at the first start
+            report["bind"] = f"velocity.toml is written at the first start ({ex})"
     report["scripts"] = write_start_scripts(e)
     registry.put(e, make_active=make_active and not is_proxy)
-    report["next"] = "srv_power(name, 'start') for the first start: it generates the configs and the world"
+    report["next"] = ("srv_link(proxy, backends) wires the network" if is_proxy else
+                      "srv_power(name, 'start') for the first start: it generates the configs and the world")
     return report
 
 

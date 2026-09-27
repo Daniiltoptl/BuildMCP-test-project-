@@ -145,6 +145,7 @@ class Repo:
         self.hangar: dict[str, dict] = {}
         self.spigot: dict[str, dict] = {}
         self.github: dict[str, list] = {}
+        self.geyser: dict[str, dict] = {}
         self.downloads: list[str] = []
         self.fail: set[str] = set()   # URL prefixes answering 500
 
@@ -215,6 +216,11 @@ class Repo:
                 return httpx.Response(200, json=res)
             if parts[4] == "versions":
                 return httpx.Response(200, json={"name": res["version"]})
+        if req.url.host == "download.geysermc.org":
+            proj = path.split("/")[3]
+            if proj not in self.geyser:
+                return httpx.Response(404, json={"error": "not found"})
+            return httpx.Response(200, json=self.geyser[proj])
         if req.url.host == "api.github.com":
             repo = "/".join(path.split("/")[2:4])
             if repo in self.github:
@@ -271,6 +277,15 @@ def repo(data):
                                 "jar": make_jar(yml("Damaged", "1.0")), "bad_hash": True}])
     r.add_modrinth("proxyonly", [{"v": "1.0", "mc": ["1.21.4"], "loaders": PAPER_LOADERS, "file": "ProxyOnly.jar",
                                   "jar": make_jar(velocity={"id": "proxyonly", "name": "ProxyOnly", "version": "1"})}])
+    # Floodgate from GeyserMC's download API: a jar per platform
+    fg = {"spigot": make_jar(yml("floodgate", "2.2.4")),
+          "velocity": make_jar(velocity={"id": "floodgate", "name": "floodgate", "version": "2.2.4"})}
+    downloads = {}
+    for plat, jar in fg.items():
+        r.files[f"https://download.geysermc.org/v2/projects/floodgate/versions/2.2.4/builds/116/downloads/{plat}"] = jar
+        downloads[plat] = {"name": f"floodgate-{plat}.jar", "sha256": hashlib.sha256(jar).hexdigest()}
+    r.geyser["floodgate"] = {"project_id": "floodgate", "project_name": "Floodgate", "version": "2.2.4", "build": 116,
+                             "downloads": downloads}
     add_spigot(r, "34315", "Vault", "1.7.3", make_jar(yml("Vault", "1.7.3")))
     add_spigot(r, "99999", "Paid", "1.0", b"", premium=True)
     # PlaceholderAPI on Hangar
@@ -362,6 +377,12 @@ def test_platforms_velocity_and_folia(repo, data):
     assert got["essentialsx"]["status"] == "skipped" and "velocity" in got["essentialsx"]["detail"]
     lobby = server(data, "lobby")
     assert rows(installer.install(lobby, ["geyser"]))["geyser"]["file"] == "Geyser-Spigot.jar"
+    assert rows(installer.install(proxy, ["floodgate"]))["floodgate"]["file"] == "floodgate-velocity.jar"
+    fl = rows(installer.install(lobby, ["floodgate"]))["floodgate"]
+    assert fl["file"] == "floodgate-spigot.jar" and fl["source"] == "geysermc:floodgate" and fl["version"] == "2.2.4"
+    # spark: a plugin on the proxy, built into Paper
+    sp = rows(installer.install(lobby, ["spark"]))["spark"]
+    assert sp["status"] == "present" and "built into Paper" in sp["detail"]
     folia = server(data, "folia", "folia")
     got = rows(installer.install(folia, ["worldedit", "modrinth:coolplugin"]))
     assert got["worldedit"]["status"] == "skipped"

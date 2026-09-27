@@ -238,3 +238,25 @@ def test_build_command_flags():
     vc = process.build_command(v)
     assert vc[-2:] == ["-jar", "velocity.jar"] and "-XX:MaxInlineLevel=15" in vc
     assert process.stop_command(v) == "shutdown" and process.memory_mb("2048M") == 2048
+
+
+def test_java_from_the_jar_and_the_closest_installed_java(tmp_path, monkeypatch):
+    import zipfile
+
+    jar = tmp_path / "velocity.jar"
+    with zipfile.ZipFile(jar, "w") as z:
+        z.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: com.velocitypowered.proxy.Velocity\n")
+        z.writestr("com/velocitypowered/proxy/Velocity.class", b"\xca\xfe\xba\xbe\x00\x00\x00\x45" + b"\x00" * 8)
+    assert software.java_from_jar(jar) == 25
+    e = registry.ServerEntry(name="v", dir=str(tmp_path), software="velocity", version="3.5.0", jar="velocity.jar")
+    assert process.java_needed(e) == 25
+    majors = {"/j/17/bin/java": 17, "/j/25/bin/java": 25, "/j/21/bin/java": 21, "/broken/java": None}
+    monkeypatch.setattr(process, "java_candidates", lambda: list(majors))
+    monkeypatch.setattr(process, "_java_major_cached", lambda j: majors[j])
+    assert process.find_java(21) == ("/j/21/bin/java", 21)
+    assert process.find_java(22) == ("/j/25/bin/java", 25)
+    assert process.find_java(26) is None
+    hint = process.problems(["Error: java.lang.UnsupportedClassVersionError: com/velocitypowered/proxy/Velocity has "
+                             "been compiled by a more recent version of the Java Runtime (class file version 69.0), "
+                             "this version of the Java Runtime only recognizes class file versions up to 65.0"] * 3)
+    assert len(hint) == 1 and hint[0].startswith("needs Java 25, runs on Java 21")

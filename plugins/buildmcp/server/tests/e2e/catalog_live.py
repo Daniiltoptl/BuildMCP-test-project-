@@ -88,8 +88,8 @@ def main() -> int:
                     failed.append(f"{alias} ({platform})")
                 status = "ok " if first else "FAIL"
                 print(f"{status} {alias:22} {platform:8} "
-                      + "; ".join(f"{s}: {v.get('version') or v.get('error', '')[:90]}" for s, v in res.items()),
-                      flush=True)
+                      + "; ".join(f"{s}: {v.get('version') if v['ok'] else 'ERR ' + v.get('error', '')[:200]}"
+                                  for s, v in res.items()), flush=True)
             report["plugins"][alias] = per
     report["failed"] = failed
     report["cores_failed"] = [k for k, v in report["cores"].items() if not v["ok"]]
@@ -113,8 +113,7 @@ def main() -> int:
         with open(summary, "a", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
 
-    print(json.dumps({"failed": failed, "cores_failed": report["cores_failed"],
-                      "search_failed": report["search_failed"]}, indent=1))
+    print(json.dumps({"failed": failed, "cores": report["cores"], "search": report["search"]}, indent=1))
     return 1 if failed or report["cores_failed"] or report["search_failed"] else 0
 
 

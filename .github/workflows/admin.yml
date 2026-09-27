@@ -11,6 +11,7 @@ on:
       - "plugins/buildmcp/server/src/buildmcp/server_tools.py"
       - "plugins/buildmcp/server/tests/e2e/catalog_live.py"
       - "plugins/buildmcp/server/tests/e2e/admin_live.py"
+      - "plugins/buildmcp/server/tests/e2e/mc_login.py"
       - ".github/workflows/admin.yml"
   schedule:
     - cron: "17 5 * * 1"  # weekly: the sources change under the catalog
@@ -47,10 +48,13 @@ jobs:
         working-directory: plugins/buildmcp/server
     steps:
       - uses: actions/checkout@v4
+      # Paper 1.21 runs on 21, the newest Velocity needs 25: the tools find the right one by themselves
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: |
+            25
+            21
       - uses: astral-sh/setup-uv@v6
       - name: Install dependencies
         run: uv sync --frozen

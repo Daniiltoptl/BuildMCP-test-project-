@@ -348,8 +348,11 @@ def _run(entry: ServerEntry, queue: list[Item], errors: list[dict], deps: bool, 
             done.append(it)
             cat = catalog.CATALOG.get(it.alias)
             if cat and platform not in cat["platforms"]:
-                it.status = "skipped"
-                it.detail = f"{cat['name']} runs on {', '.join(cat['platforms'])}, this server is {platform}"
+                if cat["builtin"].get(platform):
+                    it.status, it.detail = "present", cat["builtin"][platform]
+                else:
+                    it.status = "skipped"
+                    it.detail = f"{cat['name']} runs on {', '.join(cat['platforms'])}, this server is {platform}"
                 continue
             cur = it.current or (_match(found, it.alias) if it.alias else None)
             if cur and cur.disabled:
