@@ -334,12 +334,32 @@ def server_tp(marker: str = "", pos: list[float] | None = None, player: str = ""
 
 
 @server.tool()
-def server_cmd(command: str, world: str = "") -> str:
+def server_cmd(command: str, world: str = "", server: str = "") -> str:
     """Run a server console command and return its output, e.g. "setworldspawn 0 80 0",
-    "rg define spawn", "gamerule doDaylightCycle false". world: run it in that world's dimension."""
+    "rg define spawn", "gamerule doDaylightCycle false". world: run it in that world's dimension.
+    server: a registered server (srv_list) other than the active one; a proxy (Velocity) takes the
+    command through the console BuildMCP keeps for it."""
     try:
+        cmd = command.strip().removeprefix("/")
+        if server:
+            from buildmcp.admin import process, registry
+
+            e = registry.get(server)
+            if e.is_proxy or e.name != registry.active_name():
+                if e.is_proxy or not e.rcon_password:
+                    lines = process.console(e, cmd)
+                    return "\n".join(lines) if lines else "(no output)"
+                from buildmcp.live.rcon import RconClient
+
+                c = RconClient("127.0.0.1", e.rcon_port, e.rcon_password, timeout=15)
+                try:
+                    c.connect()
+                    pre = f"execute in {world} run " if world and ":" in world else ""
+                    return c.command(pre + cmd) or "(no output)"
+                finally:
+                    c.close()
         conn = _conn()
-        out = conn.command(command.strip().removeprefix("/"), world or None)
+        out = conn.command(cmd, world or None)
         return "\n".join(out) if out else "(no output)"
     except Exception as e:  # noqa: BLE001
         return _err(e)

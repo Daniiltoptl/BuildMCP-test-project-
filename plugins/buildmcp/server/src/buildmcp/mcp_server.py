@@ -610,6 +610,10 @@ def main() -> None:
         from buildmcp import server_tools  # noqa: F401 - registers server_* tools
     except ImportError:
         pass
+    try:
+        from buildmcp import admin_tools  # noqa: F401 - registers srv_*, plugins, config, devplugin, delegate
+    except ImportError:
+        pass
     server.run()
 
 
