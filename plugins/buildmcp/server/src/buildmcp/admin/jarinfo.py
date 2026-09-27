@@ -103,24 +103,28 @@ def read(path: Path, platform: str = "") -> PluginInfo:
             which = present[0]
         fname = next(f for f, k in _DESCRIPTORS.items() if k == which)
         text = z.read(fname).decode("utf-8", errors="replace")
-        classes = [n for n in names if n.endswith(".class")]
+        try:
+            if which == "velocity":
+                d = json.loads(text)
+                if not isinstance(d, dict):
+                    raise ValueError("not an object")
+            else:
+                d = _yaml(text)
+        except Exception as e:  # noqa: BLE001 - broken descriptor
+            raise NotAPlugin(f"{path.name}: {fname} is broken ({e})") from e
+        main = str(d.get("main", ""))
+        # the Java it needs: the main class's header (8 bytes), else the newest of a few classes
+        own = main.replace(".", "/") + ".class" if main else ""
+        probe = [own] if own in names else sorted(n for n in names if n.endswith(".class"))[:40]
         heads = {}
-        for n in classes[:400]:
+        for n in probe:
             try:
-                heads[n] = z.read(n)[:8]
-            except (KeyError, zipfile.BadZipFile, OSError):
+                with z.open(n) as f:
+                    heads[n] = f.read(8)
+            except (KeyError, zipfile.BadZipFile, OSError, RuntimeError):
                 pass
-    try:
-        if which == "velocity":
-            d = json.loads(text)
-            if not isinstance(d, dict):
-                raise ValueError("not an object")
-        else:
-            d = _yaml(text)
-    except Exception as e:  # noqa: BLE001 - broken descriptor
-        raise NotAPlugin(f"{path.name}: {fname} is broken ({e})") from e
     info = PluginInfo(name="", kind=which, platforms=present, file=path.name, version=str(d.get("version", "")),
-                      main=str(d.get("main", "")), description=str(d.get("description", "") or ""),
+                      main=main, description=str(d.get("description", "") or ""),
                       authors=_list(d.get("authors") or d.get("author")))
     info.java = _java_of(heads, info.main)
     if which == "velocity":
