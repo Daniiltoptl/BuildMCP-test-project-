@@ -59,6 +59,30 @@
       "title": "Папка сервера (если он на этом ПК)",
       "description": "Тогда я сам поставлю мост в plugins/ и прочитаю токен",
       "default": ""
+    },
+    "gemini_cli": {
+      "type": "string",
+      "title": "Gemini CLI",
+      "description": "Путь к gemini (gemini.cmd на Windows), если его нет в PATH. Нужен, чтобы отдавать ему простую работу и беречь лимиты Claude",
+      "default": ""
+    },
+    "gemini_model": {
+      "type": "string",
+      "title": "Модель Gemini",
+      "description": "Например gemini-2.5-flash; пусто — модель по умолчанию в Gemini CLI",
+      "default": ""
+    },
+    "mistral_api_key": {
+      "type": "string",
+      "title": "Ключ Mistral API",
+      "description": "Для самой простой и массовой работы (тексты, переводы, codestral для кода). Ключ: https://console.mistral.ai",
+      "sensitive": true
+    },
+    "mistral_model": {
+      "type": "string",
+      "title": "Модель Mistral для текста",
+      "description": "Пусто — mistral-small-latest; для кода всегда codestral-latest",
+      "default": ""
     }
   }
 }

@@ -450,3 +450,38 @@ def devplugin(action: str = "list", name: str = "", server: str = "", platform: 
         return _fmt(rep)
     except Exception as ex:  # noqa: BLE001
         return _err(ex)
+
+
+# ====================================================================== helpers
+@server.tool()
+def delegate(task: str = "", to: str = "auto", kind: str = "text", files: list[str] | str | None = None,
+             workdir: str = "", edit: bool = False, model: str = "", action: str = "run",
+             timeout: float = 300.0) -> str:
+    """Give an undemanding task to a cheaper model and save Claude's limits: the Gemini CLI on this PC or
+    the Mistral API. Good for: texts (plugin messages, translations, MOTDs, lore, descriptions), explaining
+    a log or a stack trace, drafting or converting configs, small plugin code, bulk edits of text files.
+    NEVER building: spawns and structures are Claude's own work with the building tools (refused here).
+    Not for security decisions, the network setup, anything that needs BuildMCP tools, or the final check.
+
+    to: gemini (the default when installed) | mistral (bulk and trivial text; codestral for kind="code") |
+    auto. kind: text | code. files: files sent along with the task (read-only).
+    edit=True (Gemini): it may change files inside workdir, which must be a devplugin project; the diff
+    comes back. action: run | status (what is installed and configured) | usage (calls, tokens per helper).
+    The answer comes from a weaker model: read it and check it (compile, validate YAML, try it on the
+    server) before using it.
+    """
+    try:
+        from buildmcp.admin import delegate as dg
+
+        a = action.lower().strip()
+        if a == "status":
+            return _fmt(dg.status())
+        if a == "usage":
+            return _fmt(dg.usage())
+        if a != "run":
+            return "Error: action must be run | status | usage"
+        fl = [files] if isinstance(files, str) and files else list(files or [])
+        return _fmt(dg.run(task, to=to, kind=kind, files=fl, workdir=workdir, edit=edit, model=model,
+                           timeout=max(10.0, min(timeout, 1800.0))))
+    except Exception as ex:  # noqa: BLE001
+        return _err(ex)

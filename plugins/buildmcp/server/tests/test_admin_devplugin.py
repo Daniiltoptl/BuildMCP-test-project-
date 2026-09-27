@@ -3,6 +3,7 @@ Paper's versions/ + libraries/, and small Velocity stubs), compile errors with f
 using another installed plugin's API, deploy/bump/replace, and installing a jar from this PC."""
 
 import json
+import os
 import shutil
 import subprocess
 import zipfile
@@ -29,7 +30,7 @@ def _javac(out, sources, cp=()):
     javac = shutil.which("javac")
     out.mkdir(parents=True, exist_ok=True)
     r = subprocess.run([javac, "--release", "21", "-nowarn", "-d", str(out), "-cp",
-                        ":".join(map(str, cp)) or ".", *map(str, sources)], capture_output=True, text=True)
+                        os.pathsep.join(map(str, cp)) or ".", *map(str, sources)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
 
 

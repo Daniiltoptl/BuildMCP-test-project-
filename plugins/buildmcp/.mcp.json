@@ -21,7 +21,11 @@
         "BUILDMCP_RCON_PORT": "${user_config.rcon_port}",
         "BUILDMCP_RCON_PASSWORD": "${user_config.rcon_password}",
         "BUILDMCP_SERVER_DIR": "${user_config.server_dir}",
-        "BUILDMCP_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
+        "BUILDMCP_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}",
+        "BUILDMCP_GEMINI_CLI": "${user_config.gemini_cli}",
+        "BUILDMCP_GEMINI_MODEL": "${user_config.gemini_model}",
+        "BUILDMCP_MISTRAL_API_KEY": "${user_config.mistral_api_key}",
+        "BUILDMCP_MISTRAL_MODEL": "${user_config.mistral_model}"
       }
     }
   }
