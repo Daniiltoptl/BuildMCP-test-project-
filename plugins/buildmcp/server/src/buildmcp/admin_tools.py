@@ -377,3 +377,76 @@ def srv_link(proxy: str, backends: list[str] | str | None = None, try_order: lis
         return _fmt(rep)
     except Exception as ex:  # noqa: BLE001
         return _err(ex)
+
+
+# ====================================================================== own plugins
+def _names_list(v) -> list[str]:
+    if isinstance(v, str):
+        return v.replace(",", " ").split()
+    return [x for x in (v or []) if x]
+
+
+@server.tool()
+def devplugin(action: str = "list", name: str = "", server: str = "", platform: str = "", package: str = "",
+              description: str = "", commands: list[str] | str | None = None, depend: list[str] | str | None = None,
+              softdepend: list[str] | str | None = None, dir: str = "", bump: str = "",
+              restart: bool = False) -> str:
+    """Your own plugins: make a project, build it against the server, deploy it.
+
+    action:
+      new     a Java 21 project: Paper/Folia (plugin.yml, config.yml, a main class with onEnable and the
+              ``commands``) or Velocity (@Plugin class). Returns the folder: write the code there with your
+              file tools. platform defaults to the server's; depend/softdepend: plugin names it uses.
+      build   javac against the server's own jars (its exact API version), the plugins installed there (so
+              their APIs can be used) and the project's lib/*.jar. Errors come back as file, line, message
+              and the code line.
+      deploy  build, then put the jar into the server's plugins/ (the previous build goes to the backup).
+              bump="patch" | "minor" | "major" raises the version first. restart=True restarts the server
+              and says whether the plugin enabled, or why not.
+      list    projects, their builds and where they are deployed.
+    """
+    try:
+        from buildmcp.admin import devplugin as dp
+        from buildmcp.admin import installer, process
+
+        a = action.lower().strip()
+        if a == "list":
+            return _fmt(dp.list_projects() or "no projects yet: devplugin(action='new', name=...)")
+        if not name:
+            return f"Error: {a} needs name"
+        if a == "new":
+            plat = platform
+            if not plat:
+                try:
+                    plat = installer.platform_of(_entry(server))
+                except Exception:  # noqa: BLE001 - no server registered yet
+                    plat = "paper"
+            return _fmt(dp.create(name, plat, package, description, _names_list(commands), _names_list(depend),
+                                  _names_list(softdepend), dir=dir))
+        e = _entry(server)
+        if a == "build":
+            return _fmt(dp.build(name, e))
+        if a != "deploy":
+            return "Error: action must be new | build | deploy | list"
+        if bump:
+            dp.bump(name, bump.lower())
+        was_running = process.is_running(e)
+        stopped: dict = {}
+
+        def before_commit() -> None:
+            if restart and was_running and not stopped:
+                stopped.update(process.stop(e))
+
+        rep = dp.deploy(name, e, before_commit=before_commit)
+        if not rep.get("changed"):
+            if stopped:
+                rep["start"] = _start_report(e, installer, process, [])
+            return _fmt(rep)
+        touched = [r.get("name") for r in rep.get("result", []) if r.get("name")]
+        if restart:
+            rep["start"] = _start_report(e, installer, process, touched)
+        elif was_running:
+            rep["next"] = "the server is running: restart it to load the new build (deploy with restart=True)"
+        return _fmt(rep)
+    except Exception as ex:  # noqa: BLE001
+        return _err(ex)

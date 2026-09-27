@@ -115,8 +115,13 @@ def main() -> int:
         out = call(S.server_cmd, fatal=False, command="velocity plugins", server="proxy")
         report["proxy_plugins"] = out
 
-        # one network: the proxy in front of the lobby (offline mode, so the test client needs no account)
-        link = call(T.srv_link, proxy="proxy", backends=["lobby"], online_mode=False, restart=True)
+        # one network: the proxy in front of the lobby (offline mode, so the test client needs no account);
+        # the lobby was made first and holds 25565, so the proxy takes it over and the lobby moves
+        call(T.srv_power, name="lobby", action="stop")
+        call(T.srv_power, name="proxy", action="stop")
+        link = call(T.srv_link, proxy="proxy", backends=["lobby"], online_mode=False, proxy_port=25565, restart=True)
+        if registry.get("proxy").port != 25565 or registry.get("lobby").port == 25565:
+            report["problems"].append(f"ports after srv_link: {link.get('ports')}")
         report["link"] = link
         for n, st in (link.get("restart") or {}).items():
             if st.get("state") != "running":
@@ -146,12 +151,36 @@ def main() -> int:
         if (ch.get("restart") or {}).get("state") != "running":
             report["problems"].append(f"restart after config set: {ch}")
 
+        # an own plugin on each: build against the server, deploy, restart, run its command
+        call(T.devplugin, action="new", name="HelloNet", server="lobby", commands=["hellonet"])
+        dep = call(T.devplugin, action="deploy", name="HelloNet", server="lobby", restart=True)
+        report["devplugin_lobby"] = dep
+        if not dep.get("build", {}).get("ok") or (dep.get("start", {}).get("plugins") or {}).get("HelloNet") != "enabled":
+            report["problems"].append(f"devplugin on the lobby: {dep}")
+        out = process.console(registry.get("lobby"), "hellonet", wait=2.0)
+        if not any("HelloNet: /hellonet works" in l for l in out):
+            report["problems"].append(f"the devplugin command printed: {out[-5:]}")
+        call(T.devplugin, action="new", name="NetTools", server="proxy")
+        dep = call(T.devplugin, action="deploy", name="NetTools", server="proxy", restart=True)
+        report["devplugin_proxy"] = dep
+        if not dep.get("build", {}).get("ok") or (dep.get("start", {}).get("plugins") or {}).get("NetTools") != "enabled":
+            report["problems"].append(f"devplugin on the proxy: {dep}")
+
         # update finds nothing newer right after the install
         up = call(T.plugins, action="update", server="lobby")
         changed = [r for r in up["result"] if isinstance(r, dict) and r["status"] == "updated"]
         if changed:
             report["problems"].append(f"update right after install changed {changed}")
     finally:
+        if report["problems"]:
+            for n in ("lobby", "proxy"):
+                try:
+                    lines = process.log_lines(registry.get(n), lines=4000)
+                    keep = [l for l in lines if any(w in l for w in ("ERROR", "WARN", "Enabling", "Loaded plugin",
+                                                                      "Could not", "Exception", "Error", "Done ("))]
+                    print(f"===== {n}: log excerpt =====\n" + "\n".join(keep[-150:]), flush=True)
+                except Exception as ex:  # noqa: BLE001
+                    print(f"no log for {n}: {ex}")
         for n in ("lobby", "proxy"):
             try:
                 e = registry.get(n)

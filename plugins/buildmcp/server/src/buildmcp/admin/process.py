@@ -131,15 +131,36 @@ def find_java(need: int) -> tuple[str, int] | None:
     return best
 
 
-def java_needed(entry: ServerEntry) -> int:
+def java_needs(entry: ServerEntry) -> tuple[int, list[str]]:
+    """The Java the server has to run on: what its core needs, or more if a plugin was compiled for a
+    newer one (current WorldEdit and FancyNpcs builds need 25 even on 1.21.8). (version, reasons)."""
+    from . import jarinfo
     from .software import java_from_jar, java_required
 
     need = java_required(entry.software, entry.version)
+    why = [f"{entry.software} {entry.version}".strip()]
     if entry.jar:
         from_jar = java_from_jar(entry.path / entry.jar)
         if from_jar and from_jar > need:
             need = from_jar
-    return need
+    pdir = entry.path / "plugins"
+    plugins = []
+    if pdir.is_dir():
+        for j in pdir.glob("*.jar"):
+            try:
+                info = jarinfo.read(j, "velocity" if entry.is_proxy else "paper")
+            except jarinfo.NotAPlugin:
+                continue
+            plugins.append(info)
+    top = max((i.java for i in plugins), default=0)
+    if top > need:
+        need = top
+        why = [f"{i.name} {i.version}" for i in plugins if i.java == top]
+    return need, why
+
+
+def java_needed(entry: ServerEntry) -> int:
+    return java_needs(entry)[0]
 
 
 def memory_mb(mem: str) -> int:
@@ -266,12 +287,12 @@ def start(entry: ServerEntry, wait: bool = True, timeout: float = 240.0) -> dict
             raise ProcessError(f"{entry.path / entry.jar} is missing")
         java = java_executable(entry)
         have = _java_major_cached(java)
-        need = java_needed(entry)
+        need, why = java_needs(entry)
         if have is None or have < need:
             found = find_java(need)
             if found is None:
                 seen = ", ".join(f"{j} ({_java_major_cached(j)})" for j in java_candidates()[:6]) or "none"
-                raise ProcessError(f"{entry.software} {entry.version} needs Java {need}; "
+                raise ProcessError(f"Java {need} is needed ({', '.join(why)}); "
                                    + (f"{java} is Java {have}" if have else f"no Java at {java}")
                                    + f". Installed: {seen}. Install Temurin JDK {need} (https://adoptium.net) "
                                    "and start again: BuildMCP finds it by itself")
@@ -280,7 +301,7 @@ def start(entry: ServerEntry, wait: bool = True, timeout: float = 240.0) -> dict
             entry.java = found[0]
             registry.put(entry)
             setup.write_start_scripts(entry)
-            java_note = f"Java {found[1]} ({found[0]}): {entry.software} {entry.version} needs {need}"
+            java_note = f"runs on Java {found[1]} ({found[0]}): {', '.join(why)} need Java {need}"
     sd = entry.state_dir()
     (sd / RUN_FILE).write_text(json.dumps({"cmd": build_command(entry), "stop_command": stop_command(entry),
                                            "restart_on_crash": bool(entry.restart_on_crash)}, indent=1), "utf-8")
@@ -447,9 +468,14 @@ def problems(lines: list[str], limit: int = 25) -> list[str]:
 
 
 def log_lines(entry: ServerEntry, lines: int = 60, grep: str = "") -> list[str]:
-    """Tail of the server log: logs/latest.log for Paper and Velocity, else the runner's console log."""
+    """Tail of the server log: while BuildMCP's runner runs the server, its console log (complete at once;
+    latest.log is written with a buffer), else whichever of logs/latest.log and the console log is newer."""
     candidates = [entry.path / "logs" / "latest.log", console_log(entry)]
-    src = max((p for p in candidates if p.exists()), key=lambda p: p.stat().st_mtime, default=None)
+    st = runner_state(entry)
+    if st and st.get("runner_alive") and console_log(entry).exists():
+        src = console_log(entry)
+    else:
+        src = max((p for p in candidates if p.exists()), key=lambda p: p.stat().st_mtime, default=None)
     if src is None:
         return []
     with open(src, "rb") as f:

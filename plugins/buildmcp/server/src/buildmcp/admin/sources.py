@@ -112,6 +112,19 @@ _PLATFORM_WORDS = {"velocity": ("velocity",), "folia": ("folia", "paper", "bukki
                    "paper": ("paper", "bukkit", "spigot", "purpur")}
 
 
+_FOREIGN_WORDS = {"velocity": ("bungee", "waterfall", "spigot", "bukkit", "paper", "fabric", "forge", "sponge"),
+                  "paper": ("bungee", "waterfall", "velocity", "fabric", "forge", "sponge", "standalone"),
+                  "folia": ("bungee", "waterfall", "velocity", "fabric", "forge", "sponge", "standalone")}
+
+
+def platform_rank(filename: str, platform: str) -> int:
+    """0: the file name says it is for this platform, 1: says nothing, 2: says another platform."""
+    low = filename.lower()
+    if any(w in low for w in _PLATFORM_WORDS.get(platform, ())):
+        return 0
+    return 2 if any(w in low for w in _FOREIGN_WORDS.get(platform, ())) else 1
+
+
 def _modrinth_file(files: list[dict], platform: str) -> dict | None:
     """The jar of a Modrinth version for the platform: a version may carry one jar per platform
     (Geyser-Spigot.jar and Geyser-Velocity.jar), else the primary file."""
@@ -207,8 +220,8 @@ def hangar_releases(project: str, platform: str, mc: str = "") -> list[Release]:
 
 
 def hangar_search(query: str, platform: str, limit: int = 10) -> list[dict]:
-    data = net.get_json(f"{HANGAR}/projects", params={"q": query, "query": query, "limit": str(limit),
-                                                      "offset": "0", "platform": HANGAR_PLATFORM.get(platform, "PAPER")})
+    data = net.get_json(f"{HANGAR}/projects", params={"q": query, "limit": str(limit), "offset": "0",
+                                                      "platform": HANGAR_PLATFORM.get(platform, "PAPER")})
     out = []
     for p in (data or {}).get("result", []):
         slug = (p.get("namespace") or {}).get("slug") or p.get("name")
@@ -265,17 +278,18 @@ def github_releases(project: str, pattern: str, platform: str, mc: str = "") -> 
     for rel in rels:
         if rel.get("draft"):
             continue
-        for a in rel.get("assets") or []:
-            name = a.get("name", "")
-            if rx.search(name) and name.endswith(".jar") and not any(w in name.lower() for w in _NOT_PLUGIN_JAR):
-                h = {}
-                if str(a.get("digest", "")).startswith("sha256:"):
-                    h["sha256"] = a["digest"].split(":", 1)[1]
-                out.append(Release("github", project, project.split("/")[-1],
-                                   str(rel.get("tag_name", "")).lstrip("v"), a["name"], a["browser_download_url"], h,
-                                   [], "beta" if rel.get("prerelease") else "release", [],
-                                   f"https://github.com/{project}/releases"))
-                break
+        cands = [a for a in rel.get("assets") or [] if rx.search(a.get("name", "")) and a["name"].endswith(".jar")
+                 and not any(w in a["name"].lower() for w in _NOT_PLUGIN_JAR)
+                 and platform_rank(a["name"], platform) < 2]
+        if not cands:
+            continue
+        a = min(cands, key=lambda x: platform_rank(x["name"], platform))
+        h = {}
+        if str(a.get("digest", "")).startswith("sha256:"):
+            h["sha256"] = a["digest"].split(":", 1)[1]
+        out.append(Release("github", project, project.split("/")[-1], str(rel.get("tag_name", "")).lstrip("v"),
+                           a["name"], a["browser_download_url"], h, [],
+                           "beta" if rel.get("prerelease") else "release", [], f"https://github.com/{project}/releases"))
     return out
 
 

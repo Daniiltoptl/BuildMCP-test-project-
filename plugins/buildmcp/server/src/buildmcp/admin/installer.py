@@ -283,11 +283,22 @@ def install(entry: ServerEntry, names: list[str], deps: bool = True, dry_run: bo
             before_commit: Callable[[], None] | None = None) -> dict:
     """Install plugins by alias, stack or spec. force=True reinstalls ones that are already there."""
     platform = platform_of(entry)
-    items, errors = expand(names, platform)
+    files = [n for n in names if n.strip().lower().startswith("file:")]
+    items, errors = expand([n for n in names if n not in files], platform)
     if force:
         for it in items:
             it.update = True
-    return _run(entry, items, errors, deps=deps, dry_run=dry_run, before_commit=before_commit)
+    rep = _run(entry, items, errors, deps=deps, dry_run=dry_run, before_commit=before_commit)
+    for f in files:
+        if dry_run:
+            rep.setdefault("plan", []).append({"want": f, "status": "planned", "detail": "a jar from this PC"})
+            continue
+        local = install_local(entry, Path(f.strip()[5:]), spec=f.strip(), before_commit=before_commit)
+        rep["result"] += local["result"]
+        rep["changed"] = rep.get("changed") or local["changed"]
+        if local.get("warning"):
+            rep.setdefault("warnings", []).append(local["warning"])
+    return rep
 
 
 def update(entry: ServerEntry, names: list[str] | None = None, dry_run: bool = False,
@@ -308,6 +319,12 @@ def update(entry: ServerEntry, names: list[str] | None = None, dry_run: bool = F
         targets = [p for p in found if not p.disabled]
     for p in targets:
         entry_lock = lock.get(p.info.name) or {}
+        if str(entry_lock.get("spec", "")).startswith(("dev:", "file:")):
+            kind, _, what = entry_lock["spec"].partition(":")
+            errors.append({"want": p.info.name, "status": "skipped",
+                           "detail": f"your own plugin: devplugin(action='deploy', name='{what}')" if kind == "dev"
+                           else "installed from a file: install the newer file the same way"})
+            continue
         cat = _catalog_of(p.info)
         if entry_lock.get("spec"):
             specs = [entry_lock["spec"]] + [s for s in (cat["sources"] if cat else []) if s != entry_lock["spec"]]
@@ -473,8 +490,29 @@ def _run(entry: ServerEntry, queue: list[Item], errors: list[dict], deps: bool, 
     out = {"server": entry.name, "platform": f"{platform} {mc}".strip(), "result": rows, "changed": changed_any}
     if backup.exists():
         out["backup"] = str(backup)
+    if changed_any:
+        jn = java_note(entry)
+        if jn:
+            out["java"] = jn
     if updating and not rows:
         out["result"] = "nothing to update"
+    return out
+
+
+def java_note(entry: ServerEntry) -> dict | None:
+    """When an installed plugin needs a newer Java than the core: which, and whether it is on this PC."""
+    from . import process
+    from .software import java_required
+
+    need, why = process.java_needs(entry)
+    if need <= java_required(entry.software, entry.version):
+        return None
+    found = process.find_java(need)
+    out = {"needs": need, "because": why}
+    if found:
+        out["note"] = f"the server will start on Java {found[1]} ({found[0]})"
+    else:
+        out["note"] = f"install Temurin JDK {need} (https://adoptium.net) or the server cannot load them"
     return out
 
 
@@ -512,6 +550,73 @@ def _put(it: Item, pdir: Path, backup: Path, platform: str) -> tuple[str, str]:
         target = pdir / f"{target.stem}-{v}.jar"
     shutil.move(str(it.staged), str(target))
     return target.name, ""
+
+
+def install_local(entry: ServerEntry, jar: Path, spec: str = "", by: str = "requested",
+                  before_commit: Callable[[], None] | None = None) -> dict:
+    """Put a jar from this PC into plugins/ (a devplugin build, a bought plugin downloaded by hand):
+    checked like a download, replacing the older jar of the same plugin, remembered in the lock."""
+    import hashlib
+
+    jar = Path(jar).expanduser()
+    platform = platform_of(entry)
+    spec = spec or f"file:{jar}"
+    if not jar.is_file():
+        return {"server": entry.name, "result": [{"want": spec, "status": "failed", "detail": f"no file {jar}"}],
+                "changed": False}
+    try:
+        info = jarinfo.read(jar, platform)
+    except jarinfo.NotAPlugin as e:
+        return {"server": entry.name, "result": [{"want": spec, "status": "failed", "detail": str(e)}], "changed": False}
+    bad = jarinfo.fits(info, platform)
+    if bad:
+        return {"server": entry.name, "result": [{"want": spec, "status": "failed", "detail": bad}], "changed": False}
+    found, _ = scan(entry)
+    cur = next((p for p in found if p.info.own_names & info.own_names), None)
+    if cur and cur.disabled:
+        return {"server": entry.name, "result": [{"want": spec, "status": "skipped",
+                                                  "detail": f"installed but disabled ({cur.path.name}): enable it"}],
+                "changed": False}
+    staging = entry.state_dir() / "staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    staged = staging / _safe_name(jar.name)
+    shutil.copy2(jar, staged)
+    sha = hashlib.sha256(staged.read_bytes()).hexdigest()
+    rel = Release("file", str(jar), info.name, info.version, _safe_name(f"{info.name}-{info.version}.jar"
+                                                                        if info.version else jar.name), jar.as_uri())
+    it = Item(spec, [spec], by=by, current=cur, release=rel, staged=staged, info=info, sha256=sha)
+    try:
+        if before_commit:
+            before_commit()
+        backup = _backup_dir(entry)
+        pdir = plugins_dir(entry)
+        pdir.mkdir(parents=True, exist_ok=True)
+        it.file, note = _put(it, pdir, backup, platform)
+    except InstallError as e:
+        return {"server": entry.name, "result": [{"want": spec, "status": "failed", "detail": str(e)}], "changed": False}
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    it.status = "updated" if cur else "installed"
+    it.detail = note
+    lock = load_lock(entry)
+    if cur and cur.info.name != info.name:
+        lock.pop(cur.info.name, None)
+    lock[info.name] = {"alias": "", "spec": spec, "version": info.version, "file": it.file, "sha256": sha,
+                       "url": "", "page": "", "source_version": info.version, "by": by,
+                       "at": time.strftime("%Y-%m-%d %H:%M")}
+    save_lock(entry, lock)
+    row = it.row()
+    row["source"] = spec
+    out = {"server": entry.name, "result": [row], "changed": True}
+    if backup.exists():
+        out["backup"] = str(backup)
+    missing = [d for d in info.depend if d.lower() not in _active_names(found)]
+    if missing:
+        out["warning"] = f"{info.name} needs {', '.join(missing)}: install them too"
+    jn = java_note(entry)
+    if jn:
+        out["java"] = jn
+    return out
 
 
 # ------------------------------------------------------------------ remove / disable / enable

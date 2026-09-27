@@ -28,6 +28,7 @@ class PluginInfo:
     authors: list[str] = field(default_factory=list)
     folia_supported: bool = False
     file: str = ""
+    java: int = 0                   # Java version the main class was compiled for (0 = unknown)
 
     @property
     def names(self) -> set[str]:
@@ -102,6 +103,13 @@ def read(path: Path, platform: str = "") -> PluginInfo:
             which = present[0]
         fname = next(f for f, k in _DESCRIPTORS.items() if k == which)
         text = z.read(fname).decode("utf-8", errors="replace")
+        classes = [n for n in names if n.endswith(".class")]
+        heads = {}
+        for n in classes[:400]:
+            try:
+                heads[n] = z.read(n)[:8]
+            except (KeyError, zipfile.BadZipFile, OSError):
+                pass
     try:
         if which == "velocity":
             d = json.loads(text)
@@ -114,6 +122,7 @@ def read(path: Path, platform: str = "") -> PluginInfo:
     info = PluginInfo(name="", kind=which, platforms=present, file=path.name, version=str(d.get("version", "")),
                       main=str(d.get("main", "")), description=str(d.get("description", "") or ""),
                       authors=_list(d.get("authors") or d.get("author")))
+    info.java = _java_of(heads, info.main)
     if which == "velocity":
         deps = d.get("dependencies") or []
         info.id = str(d.get("id", ""))
@@ -130,6 +139,17 @@ def read(path: Path, platform: str = "") -> PluginInfo:
     else:
         info.depend, info.softdepend = _list(d.get("depend")), _list(d.get("softdepend"))
     return info
+
+
+def _java_of(heads: dict[str, bytes], main: str) -> int:
+    """Java the plugin needs: its main class's class file version, else the newest of its classes."""
+    def ver(h: bytes) -> int:
+        return int.from_bytes(h[6:8], "big") - 44 if len(h) >= 8 and h[:4] == b"\xca\xfe\xba\xbe" else 0
+
+    own = heads.get(main.replace(".", "/") + ".class") if main else None
+    if own:
+        return ver(own)
+    return max((ver(h) for h in heads.values()), default=0)
 
 
 def fits(info: PluginInfo, platform: str) -> str | None:

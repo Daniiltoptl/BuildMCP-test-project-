@@ -27,7 +27,8 @@ def data(tmp_path, monkeypatch):
     net.set_transport(None)
 
 
-def make_jar(plugin_yml: str = "", velocity: dict | None = None, paper_yml: str = "", bungee: str = "") -> bytes:
+def make_jar(plugin_yml: str = "", velocity: dict | None = None, paper_yml: str = "", bungee: str = "",
+             java: int = 21) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         if plugin_yml:
@@ -38,7 +39,7 @@ def make_jar(plugin_yml: str = "", velocity: dict | None = None, paper_yml: str 
             z.writestr("velocity-plugin.json", json.dumps(velocity))
         if bungee:
             z.writestr("bungee.yml", bungee)
-        z.writestr("com/example/Main.class", b"\xca\xfe\xba\xbe")
+        z.writestr("com/example/Main.class", b"\xca\xfe\xba\xbe\x00\x00" + (java + 44).to_bytes(2, "big"))
     return buf.getvalue()
 
 
@@ -98,6 +99,35 @@ def test_jarinfo_reads_every_descriptor(tmp_path):
         jarinfo.read(tmp_path / "text.jar")
 
 
+def test_plugins_that_need_a_newer_java_raise_the_servers_java(data, monkeypatch):
+    from buildmcp.admin import process
+
+    e = server(data)
+    (e.path / "plugins" / "old.jar").write_bytes(make_jar(yml("Old", "1"), java=17))
+    assert process.java_needs(e) == (21, ["paper 1.21.4"])
+    (e.path / "plugins" / "we.jar").write_bytes(make_jar(yml("WorldEdit", "7.4.5"), java=25))
+    assert jarinfo.read(e.path / "plugins" / "we.jar").java == 25
+    assert process.java_needs(e) == (25, ["WorldEdit 7.4.5"])
+    monkeypatch.setattr(process, "find_java", lambda need: ("/jdk25/bin/java", 25) if need <= 25 else None)
+    note = installer.java_note(e)
+    assert note["needs"] == 25 and "Java 25 (/jdk25/bin/java)" in note["note"]
+
+
+def test_log_of_a_running_server_comes_from_the_runner(data):
+    import os
+
+    from buildmcp.admin import process
+
+    e = server(data)
+    (e.path / "logs").mkdir()
+    (e.path / "logs" / "latest.log").write_text("[10:00:00 INFO]: buffered, half written\n")
+    process.console_log(e).write_text("[10:00:00 INFO]: [A] Enabling A v1\n[10:00:01 INFO]: [B] Enabling B v1\n")
+    os.utime(e.path / "logs" / "latest.log", (1e10, 1e10))       # newer by mtime
+    assert process.log_lines(e) == ["[10:00:00 INFO]: buffered, half written"]
+    (e.state_dir() / "runner.json").write_text(json.dumps({"runner_pid": os.getpid(), "pid": 0, "state": "running"}))
+    assert process.log_lines(e)[-1].endswith("Enabling B v1")
+
+
 def test_pick_release_for_the_minecraft_version():
     R = sources.Release
     rs = [R("modrinth", "x", "X", "3.0-beta", "x3.jar", "u3", mc_versions=["1.21.5"], channel="beta"),
@@ -110,6 +140,9 @@ def test_pick_release_for_the_minecraft_version():
     r = sources.pick(rs, "26.1")
     assert r.version == "2.0" and "not 26.1" in r.note               # newest stable, with a warning
     assert sources.pick([], "1.21.4") is None
+    assert sources.platform_rank("AuthMe-6.0.1.jar", "paper") == 1
+    assert sources.platform_rank("AuthMeBungee-2.3.jar", "paper") == 2
+    assert sources.platform_rank("Geyser-Velocity.jar", "velocity") == 0
     assert sources._hangar_range_has("1.8-1.21.4", "1.20.1") and not sources._hangar_range_has("1.8-1.20", "1.21")
     assert sources.parse_spec("github:MilkBowl/Vault#^Vault\\.jar$") == ("github", "MilkBowl/Vault", "^Vault\\.jar$")
     assert sources.parse_spec("https://x.org/a.jar") == ("url", "https://x.org/a.jar", "")
