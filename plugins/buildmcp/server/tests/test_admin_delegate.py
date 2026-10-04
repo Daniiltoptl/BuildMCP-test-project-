@@ -89,10 +89,17 @@ def test_gemini_edits_only_inside_a_devplugin_project(env):
 
 def test_building_is_never_delegated(env):
     for task in ("Build me a spawn for the anarchy server", "постройте спавн в античном стиле",
-                 "write a run_script step with scene.fill"):
-        with pytest.raises(delegate.DelegateError, match="building stays with Claude"):
+                 "write a run_script step with scene.fill", "придумай палитру блоков для замка на спавне",
+                 "suggest a layout for the hub", "what blocks should the castle facade use",
+                 "сделай рельеф острова под спавн", "blockout of the lobby", "какие блоки взять для храма"):
+        with pytest.raises(delegate.DelegateError, match="building stays with you"):
             delegate.run(task)
     assert not (env / "gemini-call.json").exists()
+    for task in ("переведи сообщения лобби на английский", "color palette for the lobby chat messages",
+                 "translate the hub NPC lore", "explain this WorldGuard error about the spawn region",
+                 "write a /spawn command plugin", "раскладка клавиатуры сбивается", "names for the hub servers",
+                 "make a lobby plugin that gives a compass"):
+        assert not delegate.is_build_task(task), task
 
 
 def test_mistral_models_key_and_errors(env, monkeypatch):
@@ -130,5 +137,5 @@ def test_the_tool(env):
 
     out = json.loads(admin_tools.delegate(action="status"))
     assert out["rule"].startswith("building")
-    assert admin_tools.delegate(task="Build a castle hub").startswith("Error: building stays with Claude")
+    assert admin_tools.delegate(task="Build a castle hub").startswith("Error: building stays with you")
     assert json.loads(admin_tools.delegate(task="summarize", files=[]))["to"] == "gemini"

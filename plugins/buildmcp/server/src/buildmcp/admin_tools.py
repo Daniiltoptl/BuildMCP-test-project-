@@ -460,7 +460,9 @@ def delegate(task: str = "", to: str = "auto", kind: str = "text", files: list[s
     """Give an undemanding task to a cheaper model and save Claude's limits: the Gemini CLI on this PC or
     the Mistral API. Good for: texts (plugin messages, translations, MOTDs, lore, descriptions), explaining
     a log or a stack trace, drafting or converting configs, small plugin code, bulk edits of text files.
-    NEVER building: spawns and structures are Claude's own work with the building tools (refused here).
+    NEVER building: spawns and structures, and how they look (palette, layout, terrain), are your own
+    work with the building tools; Gemini and Mistral build badly (refused here). Do not call the gemini
+    CLI from a shell for it either.
     Not for security decisions, the network setup, anything that needs BuildMCP tools, or the final check.
 
     to: gemini (the default when installed) | mistral (bulk and trivial text; codestral for kind="code") |

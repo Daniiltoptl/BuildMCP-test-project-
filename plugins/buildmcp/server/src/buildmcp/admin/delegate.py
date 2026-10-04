@@ -2,8 +2,9 @@
 this PC (headless, JSON output) and the Mistral API (codestral for code, mistral-small for text).
 
 What goes out: texts (plugin messages, translations, MOTDs, descriptions), explanations of logs and
-errors, config drafts and conversions, small plugin code. Never building: spawns and structures are
-made only by Claude with the building tools, and this module refuses tasks that ask for them.
+errors, config drafts and conversions, small plugin code. Never building: spawns and structures, and
+how they look (palettes, layouts, terrain), are made only by the assistant the owner works with
+(Claude or Codex) with the building tools; this module refuses tasks that ask for them.
 Gemini answers read-only (approval mode plan); with edit=True it may change files only inside a
 devplugin project, and the changed files come back as a diff for Claude to review.
 Every call is logged in <data>/delegate-usage.jsonl.
@@ -48,6 +49,18 @@ _BUILD_TASK = re.compile(
     r"(постро|строи|выстро|сострои|спроектир|сгенерир|сделай|создай)\w*\s+(мне\s+|новый\s+|новую\s+|новое\s+)*"
     r"(спавн|хаб|лобби|замок|башн|остров|арен|деревн|дом|храм|постройк|здани)\w*" + _NOT_A_BUILD,
     re.I)
+# asks how a build should look: its palette, layout, massing, facade, terrain... is building too
+_BUILD_EN = r"(spawn|hub|lobby|castle|tower|island|arena|village|house|temple|building|structure)s?"
+_BUILD_RU = r"(спавн|хаб|лобби|зам(ок|к)|башн|остров|арен|деревн|\bдом(а|ов|у|ом|е)?\b|храм|постройк|здани)"
+_LOOK_EN = (r"(palette|layout|blockout|block-?out|massing|silhouette|facade|fa[cç]ade|terrain|landscap\w*|"
+            r"(which|what) blocks|block choice)")
+_LOOK_RU = r"(палитр|раскладк|компоновк|планировк|силуэт|фасад|рельеф|ландшафт|террейн|каки[ехм] блок)"
+_DESIGN_TASK = re.compile(
+    rf"\b{_LOOK_EN}\b[^.\n]{{0,60}}\b{_BUILD_EN}\b|\b{_BUILD_EN}\b[^.\n]{{0,60}}\b{_LOOK_EN}|"
+    rf"{_LOOK_RU}[^.\n]{{0,60}}{_BUILD_RU}|{_BUILD_RU}[^.\n]{{0,60}}{_LOOK_RU}", re.I)
+# ...unless it is plainly about text: chat colors, messages, translations, lore, names
+_TEXT_TASK = re.compile(r"(сообщ|чат|motd|цвет|colou?r|message|chat|translat|перев[оеё]д|\blore\b|\bлор|"
+                        r"description|описан|\bnames?\b|назван)", re.I)
 
 
 class DelegateError(RuntimeError):
@@ -55,7 +68,8 @@ class DelegateError(RuntimeError):
 
 
 def is_build_task(task: str) -> bool:
-    return bool(_BUILD_TASK.search(task))
+    """Building, or deciding how a build looks (palette, layout, terrain...): never for another model."""
+    return bool(_BUILD_TASK.search(task) or (_DESIGN_TASK.search(task) and not _TEXT_TASK.search(task)))
 
 
 # ------------------------------------------------------------------ gemini
@@ -280,9 +294,10 @@ def run(task: str, to: str = "auto", kind: str = "text", files: list[str] | None
     if not task.strip():
         raise DelegateError("empty task")
     if is_build_task(task):
-        raise DelegateError("building stays with Claude: spawns and structures are made with the building tools "
-                            "(run_script, render, inspect), never by another model. delegate is for texts, "
-                            "configs, explanations and small code")
+        raise DelegateError("building stays with you, the assistant the owner works with (Claude or Codex): "
+                            "spawns and structures, and how they look (palette, layout, terrain), are made with the "
+                            "building tools (run_script, render, inspect), never by Gemini or Mistral. delegate is "
+                            "for texts, configs, explanations and small code")
     to = to.lower().strip()
     if to == "auto":
         to = "gemini" if gemini_path() else ("mistral" if mistral_key() else "")
